@@ -1,0 +1,33 @@
+{
+  "name": "super-lottery",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "npm run compile && XDG_CACHE_HOME=/tmp node test/SuperLottery.test.js",
+    "compile": "XDG_CACHE_HOME=/tmp hardhat compile",
+    "deploy:sepolia": "XDG_CACHE_HOME=/tmp hardhat run scripts/deploy.js --network sepolia",
+    "weights": "node scripts/calculate-tier-weights.js",
+    "copy:abi": "node scripts/copy-abi.js",
+    "predev": "npm run compile && npm run copy:abi",
+    "dev": "vite",
+    "prebuild": "npm run compile && npm run copy:abi",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@chainlink/contracts": "1.4.0",
+    "@gsap/react": "^2.1.2",
+    "@vitejs/plugin-react": "latest",
+    "ethers": "latest",
+    "gsap": "^3.15.0",
+    "react": "latest",
+    "react-dom": "latest",
+    "vite": "latest"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "latest",
+    "@nomicfoundation/hardhat-network-helpers": "latest",
+    "hardhat": "latest"
+  }
+}
