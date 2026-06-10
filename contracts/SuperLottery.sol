@@ -31,6 +31,19 @@ contract SuperLottery {
         uint256 openTime;
         uint256 closeTime;
         uint256 drawTime;
+        uint16 stimulusBps;
+        uint16 promotionBps;
+        uint16 referralRewardBps;
+        uint16 maxPromotersPerRound;
+        uint256 promotionPool;
+        uint256 promotionPaid;
+    }
+
+    struct PromotionConfig {
+        uint16 stimulusBps;
+        uint16 promotionBps;
+        uint16 referralRewardBps;
+        uint16 maxPromotersPerRound;
     }
 
     struct AreaConfig {
@@ -90,6 +103,7 @@ contract SuperLottery {
     error InvalidSystemMainNumberCount();
     error InvalidSystemExtraNumberCount();
     error TooManySystemEntries();
+    error InvalidPromotionConfig();
 
     uint8 private constant GAME_DIGITAL = 0;
     uint8 private constant GAME_NUMBER_LOTTO = 1;
@@ -98,6 +112,10 @@ contract SuperLottery {
     uint8 private constant GAME_KENO = 4;
     uint8 private constant MAX_GAMES = 5;
     uint16 private constant BPS_DENOMINATOR = 10_000;
+    uint16 private constant DEFAULT_STIMULUS_BPS = 10_000;
+    uint16 private constant DEFAULT_PROMOTION_BPS = 0;
+    uint16 private constant DEFAULT_REFERRAL_REWARD_BPS = 5_000;
+    uint16 private constant DEFAULT_MAX_PROMOTERS_PER_ROUND = 200;
     uint256 private constant MAX_LOTTO_SYSTEM_ENTRIES = 100;
     uint16 private constant TIER_1_MAX_POOL_BPS = 8000;
     uint16 private constant TIER_2_MAX_POOL_BPS = 5000;
@@ -133,6 +151,7 @@ contract SuperLottery {
     mapping(uint8 => mapping(uint256 => mapping(uint256 => uint8))) public registeredTicketTier;
     mapping(uint8 => uint256) public rolloverReserve;
     mapping(uint8 => uint16) public reserveBps;
+    mapping(uint8 => PromotionConfig) public promotionConfigs;
     mapping(uint256 => DrawRequest) public drawRequests;
 
     event TicketBought(uint8 indexed gameType, uint256 indexed roundId, uint256 indexed ticketId, address buyer);
@@ -161,6 +180,13 @@ contract SuperLottery {
         uint256 amount
     );
     event RoundStarted(uint8 indexed gameType, uint256 indexed roundId, uint256 prizePool);
+    event PromotionConfigUpdated(
+        uint8 indexed gameType,
+        uint16 stimulusBps,
+        uint16 promotionBps,
+        uint16 referralRewardBps,
+        uint16 maxPromotersPerRound
+    );
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert OnlyOwner();
@@ -192,11 +218,21 @@ contract SuperLottery {
         _configureKeno();
 
         for (uint8 gameType = 0; gameType < MAX_GAMES; gameType++) {
+            promotionConfigs[gameType] = PromotionConfig({
+                stimulusBps: DEFAULT_STIMULUS_BPS,
+                promotionBps: DEFAULT_PROMOTION_BPS,
+                referralRewardBps: DEFAULT_REFERRAL_REWARD_BPS,
+                maxPromotersPerRound: DEFAULT_MAX_PROMOTERS_PER_ROUND
+            });
+        }
+
+        for (uint8 gameType = 0; gameType < MAX_GAMES; gameType++) {
             currentRoundId[gameType] = 1;
             Round storage round = rounds[gameType][1];
             round.status = RoundStatus.Open;
             round.openTime = block.timestamp;
             round.closeTime = _nextUtcMidnight(block.timestamp);
+            _lockPromotionConfig(gameType, round);
             emit RoundStarted(gameType, 1, 0);
         }
     }
@@ -287,6 +323,32 @@ contract SuperLottery {
         if (block.timestamp < round.closeTime) revert RoundCloseTimeNotReached();
         round.status = RoundStatus.Closed;
         emit RoundClosed(gameType, roundId);
+    }
+
+    function setPromotionConfig(
+        uint8 gameType,
+        uint16 stimulusBps,
+        uint16 promotionBps,
+        uint16 referralRewardBps,
+        uint16 maxPromotersPerRound
+    ) external onlyOwner {
+        _requireValidGame(gameType);
+        if (
+            uint256(stimulusBps) + uint256(promotionBps) != BPS_DENOMINATOR
+                || referralRewardBps >= BPS_DENOMINATOR
+                || maxPromotersPerRound == 0
+        ) {
+            revert InvalidPromotionConfig();
+        }
+
+        promotionConfigs[gameType] = PromotionConfig({
+            stimulusBps: stimulusBps,
+            promotionBps: promotionBps,
+            referralRewardBps: referralRewardBps,
+            maxPromotersPerRound: maxPromotersPerRound
+        });
+
+        emit PromotionConfigUpdated(gameType, stimulusBps, promotionBps, referralRewardBps, maxPromotersPerRound);
     }
 
     function requestDraw(uint8 gameType) external onlyOwner returns (uint256 requestId) {
@@ -457,6 +519,7 @@ contract SuperLottery {
         next.prizePool = rolloverReserve[gameType];
         next.openTime = nextOpenTime;
         next.closeTime = nextCloseTime;
+        _lockPromotionConfig(gameType, next);
         rolloverReserve[gameType] = 0;
 
         emit RoundStarted(gameType, nextRoundId, next.prizePool);
@@ -681,6 +744,14 @@ contract SuperLottery {
                 rollIfNoWinner: rollIfNoWinner
             })
         );
+    }
+
+    function _lockPromotionConfig(uint8 gameType, Round storage round) private {
+        PromotionConfig memory config = promotionConfigs[gameType];
+        round.stimulusBps = config.stimulusBps;
+        round.promotionBps = config.promotionBps;
+        round.referralRewardBps = config.referralRewardBps;
+        round.maxPromotersPerRound = config.maxPromotersPerRound;
     }
 
     function _setWinningNumbers(uint8 gameType, uint256 roundId, uint256 randomWord) private {

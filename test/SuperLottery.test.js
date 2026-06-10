@@ -9,6 +9,10 @@ const GAME_BASE_LOTTO = 3;
 const GAME_KENO = 4;
 const MAX_LOTTO_SYSTEM_ENTRIES = 100n;
 const BPS_DENOMINATOR = 10_000n;
+const DEFAULT_STIMULUS_BPS = 10_000n;
+const DEFAULT_PROMOTION_BPS = 0n;
+const DEFAULT_REFERRAL_REWARD_BPS = 5_000n;
+const DEFAULT_MAX_PROMOTERS = 200n;
 
 const time = {
   async latest() {
@@ -177,6 +181,84 @@ async function prepareRegisteredLottoWinner(lottery, alice) {
 }
 
 describe("SuperLottery multi-game prize pools", () => {
+  it("initializes default promotion config and locks it into first rounds", async () => {
+    const { lottery } = await deployLottery();
+
+    for (const gameType of [GAME_DIGITAL, GAME_NUMBER_LOTTO, GAME_LOTTO, GAME_BASE_LOTTO, GAME_KENO]) {
+      const config = await lottery.promotionConfigs(gameType);
+      assert.equal(config.stimulusBps, DEFAULT_STIMULUS_BPS);
+      assert.equal(config.promotionBps, DEFAULT_PROMOTION_BPS);
+      assert.equal(config.referralRewardBps, DEFAULT_REFERRAL_REWARD_BPS);
+      assert.equal(config.maxPromotersPerRound, DEFAULT_MAX_PROMOTERS);
+
+      const round = await lottery.getRound(gameType, 1);
+      assert.equal(round.stimulusBps, DEFAULT_STIMULUS_BPS);
+      assert.equal(round.promotionBps, DEFAULT_PROMOTION_BPS);
+      assert.equal(round.referralRewardBps, DEFAULT_REFERRAL_REWARD_BPS);
+      assert.equal(round.maxPromotersPerRound, DEFAULT_MAX_PROMOTERS);
+      assert.equal(round.promotionPool, 0n);
+      assert.equal(round.promotionPaid, 0n);
+    }
+  });
+
+  it("allows only the owner to update per-game promotion config", async () => {
+    const { lottery, alice } = await deployLottery();
+
+    await assert.rejects(
+      lottery.connect(alice).setPromotionConfig(GAME_LOTTO, 7000, 3000, 5000, 100),
+      /OnlyOwner|0x5fc483c5/
+    );
+
+    await lottery.setPromotionConfig(GAME_LOTTO, 7000, 3000, 5000, 100);
+    const config = await lottery.promotionConfigs(GAME_LOTTO);
+    assert.equal(config.stimulusBps, 7000n);
+    assert.equal(config.promotionBps, 3000n);
+    assert.equal(config.referralRewardBps, 5000n);
+    assert.equal(config.maxPromotersPerRound, 100n);
+  });
+
+  it("rejects invalid promotion config values", async () => {
+    const { lottery } = await deployLottery();
+
+    await assert.rejects(
+      lottery.setPromotionConfig(GAME_LOTTO, 7000, 2000, 5000, 100),
+      /InvalidPromotionConfig/
+    );
+    await assert.rejects(
+      lottery.setPromotionConfig(GAME_LOTTO, 7000, 3000, 10000, 100),
+      /InvalidPromotionConfig/
+    );
+    await assert.rejects(
+      lottery.setPromotionConfig(GAME_LOTTO, 7000, 3000, 5000, 0),
+      /InvalidPromotionConfig/
+    );
+    await assert.rejects(
+      lottery.setPromotionConfig(99, 7000, 3000, 5000, 100),
+      /InvalidGameType/
+    );
+  });
+
+  it("locks updated promotion config only into future rounds", async () => {
+    const { lottery, alice, ticketPrice } = await deployLottery();
+
+    await lottery.setPromotionConfig(GAME_LOTTO, 7000, 3000, 5000, 100);
+    const round1 = await lottery.getRound(GAME_LOTTO, 1);
+    assert.equal(round1.stimulusBps, DEFAULT_STIMULUS_BPS);
+    assert.equal(round1.promotionBps, DEFAULT_PROMOTION_BPS);
+
+    await lottery.connect(alice).buyTicket(GAME_LOTTO, [1, 2, 3, 4, 6], [1, 3], { value: ticketPrice });
+    await closeRoundAfterCutoff(lottery, GAME_LOTTO);
+    await lottery.testDrawFixed(GAME_LOTTO, [1, 2, 3, 4, 5], [1, 2]);
+    await lottery.closeRegistration(GAME_LOTTO, 1);
+    await lottery.startNextRound(GAME_LOTTO);
+
+    const round2 = await lottery.getRound(GAME_LOTTO, 2);
+    assert.equal(round2.stimulusBps, 7000n);
+    assert.equal(round2.promotionBps, 3000n);
+    assert.equal(round2.referralRewardBps, 5000n);
+    assert.equal(round2.maxPromotersPerRound, 100n);
+  });
+
   it("initializes each game round with UTC daily timing", async () => {
     const { lottery } = await deployLottery();
     const now = await latestTimestamp();
