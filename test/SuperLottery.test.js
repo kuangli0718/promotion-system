@@ -395,6 +395,32 @@ describe("SuperLottery multi-game prize pools", () => {
     assert.equal(await lottery.rolloverReserve(GAME_LOTTO), ticketPrice / 2n);
   });
 
+  it("lets promoters claim settled promotion rewards once", async () => {
+    const { lottery, alice, bob, ticketPrice } = await deployLottery();
+    await lottery.setPromotionConfig(GAME_LOTTO, 5000, 5000, 5000, 200);
+    const roundId = await advanceLottoToNextRound(lottery);
+    await lottery.connect(alice).buyTicketWithReferrer(GAME_LOTTO, [1, 2, 3, 4, 5], [1, 2], bob.address, {
+      value: ticketPrice,
+    });
+    await closeLosingLottoRound(lottery, roundId);
+
+    const expectedReward = ticketPrice / 2n;
+    const before = await lottery.runner.provider.getBalance(bob.address);
+    const tx = await lottery.connect(bob).claimPromotionReward();
+    const receipt = await tx.wait();
+    const gasCost = receipt.gasUsed * receipt.gasPrice;
+    const after = await lottery.runner.provider.getBalance(bob.address);
+
+    assert.equal(after, before + expectedReward - gasCost);
+    assert.equal(await lottery.promotionRewardBalance(bob.address), 0n);
+    await assert.rejects(lottery.connect(bob).claimPromotionReward(), /NoPromotionReward/);
+  });
+
+  it("rejects promotion reward claims with zero balance", async () => {
+    const { lottery, alice } = await deployLottery();
+    await assert.rejects(lottery.connect(alice).claimPromotionReward(), /NoPromotionReward/);
+  });
+
   it("proportionally scales promotion rewards when theoretical rewards exceed the promotion pool", async () => {
     const { lottery, alice, bob, carol, ticketPrice } = await deployLottery();
     await lottery.setPromotionConfig(GAME_LOTTO, 7500, 2500, 5000, 200);

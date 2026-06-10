@@ -106,6 +106,7 @@ contract SuperLottery {
     error InvalidPromotionConfig();
     error InvalidReferrer();
     error TooManyRoundPromoters();
+    error NoPromotionReward();
 
     uint8 private constant GAME_DIGITAL = 0;
     uint8 private constant GAME_NUMBER_LOTTO = 1;
@@ -211,6 +212,7 @@ contract SuperLottery {
         uint256 totalTheoretical,
         uint256 promotionPaid
     );
+    event PromotionRewardClaimed(address indexed referrer, uint256 amount);
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert OnlyOwner();
@@ -560,6 +562,17 @@ contract SuperLottery {
         require(sent, "PRIZE_TRANSFER_FAILED");
 
         emit PrizeClaimed(gameType, roundId, ticketId, msg.sender, amount);
+    }
+
+    function claimPromotionReward() external {
+        uint256 amount = promotionRewardBalance[msg.sender];
+        if (amount == 0) revert NoPromotionReward();
+
+        promotionRewardBalance[msg.sender] = 0;
+        (bool sent,) = msg.sender.call{value: amount}("");
+        require(sent, "PROMOTION_TRANSFER_FAILED");
+
+        emit PromotionRewardClaimed(msg.sender, amount);
     }
 
     function startNextRound(uint8 gameType) external onlyOwner {
