@@ -218,6 +218,9 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now());
   const [betMode, setBetMode] = useState("single");
+  const [boundReferrer, setBoundReferrer] = useState("");
+  const [referrerInput, setReferrerInput] = useState("");
+  const [promotionRewardBalance, setPromotionRewardBalance] = useState(0n);
   const refreshSeq = useRef(0);
   const { contextSafe } = useGSAP({ scope: appRef });
 
@@ -238,6 +241,9 @@ export default function App() {
     : 1;
   const systemTooLarge = isSystemMode && systemEntryCount > selectedGame.system.maxEntries;
   const totalTicketPrice = ticketPrice * BigInt(systemEntryCount || 0);
+  const normalizedReferrerInput = referrerInput.trim();
+  const hasValidReferrerInput = ethers.isAddress(normalizedReferrerInput);
+  const activeReferrer = boundReferrer || (hasValidReferrerInput ? normalizedReferrerInput : "");
   const firstPrizeProbability = isSystemMode
     ? getLottoFirstPrizeProbability(systemEntryCount)
     : getLottoFirstPrizeProbability(1);
@@ -417,6 +423,14 @@ export default function App() {
     return () => window.clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get("ref");
+    if (ref && ethers.isAddress(ref)) {
+      setReferrerInput(ref);
+    }
+  }, []);
+
   function selectGame(gameType) {
     refreshSeq.current += 1;
     setSelectedGameType(gameType);
@@ -484,6 +498,19 @@ export default function App() {
       }
     }
 
+    let nextBoundReferrer = "";
+    let nextPromotionRewardBalance = 0n;
+    if (knownAccount) {
+      const [referrer, rewardBalance] = await Promise.all([
+        contract.referrerOf(knownAccount),
+        contract.promotionRewardBalance(knownAccount)
+      ]);
+      if (referrer && referrer !== ethers.ZeroAddress) {
+        nextBoundReferrer = referrer;
+      }
+      nextPromotionRewardBalance = rewardBalance;
+    }
+
     if (requestSeq !== refreshSeq.current || requestGameType !== selectedGameType) return;
 
     setRoundId(currentRoundId);
@@ -494,6 +521,8 @@ export default function App() {
     setHistoryRounds(history);
     setTierStats(nextTierStats);
     setIsOwner(Boolean(knownAccount) && owner.toLowerCase() === knownAccount.toLowerCase());
+    setBoundReferrer(nextBoundReferrer);
+    setPromotionRewardBalance(nextPromotionRewardBalance);
   }, [account, selectedGame, selectedGameType]);
 
   useEffect(() => {
@@ -571,12 +600,24 @@ export default function App() {
 
   async function buyTicket() {
     await transact(
-      (contract) => (
-        isSystemMode
+      (contract) => {
+        if (activeReferrer) {
+          return isSystemMode
+            ? contract.buyLottoSystemTicketWithReferrer(mainNumbers, extraNumbers, activeReferrer, { value: totalTicketPrice })
+            : contract.buyTicketWithReferrer(selectedGameType, mainNumbers, extraNumbers, activeReferrer, { value: ticketPrice });
+        }
+        return isSystemMode
           ? contract.buyLottoSystemTicket(mainNumbers, extraNumbers, { value: totalTicketPrice })
-          : contract.buyTicket(selectedGameType, mainNumbers, extraNumbers, { value: ticketPrice })
-      ),
+          : contract.buyTicket(selectedGameType, mainNumbers, extraNumbers, { value: ticketPrice });
+      },
       isSystemMode ? "System ticket bought." : "Ticket bought."
+    );
+  }
+
+  async function claimPromotionReward() {
+    await transact(
+      (contract) => contract.claimPromotionReward(),
+      "Promotion reward claimed."
     );
   }
 
@@ -689,6 +730,17 @@ export default function App() {
         <div>
           <span className="label">Ticket</span>
           <strong>{ticketPrice ? `${ethers.formatEther(ticketPrice)} ETH` : "-"}</strong>
+        </div>
+        <div>
+          <span className="label">Promotion</span>
+          <strong>{ethers.formatEther(promotionRewardBalance)} ETH</strong>
+          <button
+            type="button"
+            onClick={claimPromotionReward}
+            disabled={!account || promotionRewardBalance === 0n || busy}
+          >
+            Claim promotion
+          </button>
         </div>
       </section>
 
@@ -821,6 +873,38 @@ export default function App() {
                 {formatNumbers(mainNumbers, selectedGame.main)}
                 {selectedGame.extra ? ` + ${formatNumbers(extraNumbers, selectedGame.extra)}` : ""}
               </strong>
+            </div>
+          </div>
+
+          <div className="referral-panel">
+            <div>
+              <span className="label">Referrer</span>
+              {boundReferrer ? (
+                <strong>Bound to {shortAddress(boundReferrer)}</strong>
+              ) : (
+                <input
+                  type="text"
+                  value={referrerInput}
+                  onChange={(event) => setReferrerInput(event.target.value)}
+                  placeholder="0x referrer address"
+                  aria-label="Referrer address"
+                  spellCheck="false"
+                />
+              )}
+            </div>
+            <p className="muted">
+              {boundReferrer
+                ? "Purchases use your bound referrer."
+                : hasValidReferrerInput
+                  ? `Purchases will use ${shortAddress(normalizedReferrerInput)}.`
+                  : "Optional referral address for this wallet."}
+            </p>
+          </div>
+
+          <div className="selection-row">
+            <div>
+              <span className="label">Purchase Price</span>
+              <strong>{ethers.formatEther(isSystemMode ? totalTicketPrice : ticketPrice)} ETH</strong>
             </div>
             <button type="button" className="primary" disabled={!canBuy || busy} onClick={buyTicket}>
               {isSystemMode ? "Buy System Ticket" : "Buy Ticket"}

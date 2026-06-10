@@ -143,7 +143,7 @@ h3 {
 
 .status-band {
   display: grid;
-  grid-template-columns: 0.9fr 0.8fr 1.7fr 1fr 1.35fr 1.15fr 0.9fr;
+  grid-template-columns: 0.9fr 0.8fr 1.7fr 1fr 1.35fr 1.15fr 0.9fr 1fr;
   gap: 1px;
   overflow: hidden;
   border: 1px solid #ccd3d8;
@@ -174,6 +174,14 @@ h3 {
   margin-top: 6px;
   overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
+}
+
+.status-band button {
+  margin-top: 10px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
 }
 
 .status-band > div:nth-child(6) strong {
@@ -421,6 +429,33 @@ h3 {
 
 .selection-row strong {
   font-variant-numeric: tabular-nums;
+}
+
+.referral-panel {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid #e4e8eb;
+  margin-top: 16px;
+  padding-top: 16px;
+}
+
+.referral-panel input {
+  width: 100%;
+  min-height: 40px;
+  margin-top: 7px;
+  border: 1px solid #c9d0d6;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #16201b;
+  padding: 0 12px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.referral-panel input:focus {
+  border-color: #0e6848;
+  outline: 2px solid rgba(14, 104, 72, 0.16);
+  outline-offset: 1px;
 }
 
 .system-summary,

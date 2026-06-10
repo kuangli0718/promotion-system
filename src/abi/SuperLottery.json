@@ -82,6 +82,16 @@
   },
   {
     "inputs": [],
+    "name": "InvalidPromotionConfig",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidReferrer",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "InvalidSystemExtraNumberCount",
     "type": "error"
   },
@@ -98,6 +108,11 @@
   {
     "inputs": [],
     "name": "LocalTestingDisabled",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NoPromotionReward",
     "type": "error"
   },
   {
@@ -163,6 +178,11 @@
   {
     "inputs": [],
     "name": "TicketDidNotWin",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "TooManyRoundPromoters",
     "type": "error"
   },
   {
@@ -261,6 +281,161 @@
       }
     ],
     "name": "PrizeClaimed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint8",
+        "name": "gameType",
+        "type": "uint8"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "roundId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "referrer",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "buyer",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "ticketCount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "theoreticalReward",
+        "type": "uint256"
+      }
+    ],
+    "name": "PromotionAccrued",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint8",
+        "name": "gameType",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "stimulusBps",
+        "type": "uint16"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "promotionBps",
+        "type": "uint16"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "referralRewardBps",
+        "type": "uint16"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "maxPromotersPerRound",
+        "type": "uint16"
+      }
+    ],
+    "name": "PromotionConfigUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "referrer",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "PromotionRewardClaimed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint8",
+        "name": "gameType",
+        "type": "uint8"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "roundId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "promotionPool",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "totalTheoretical",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "promotionPaid",
+        "type": "uint256"
+      }
+    ],
+    "name": "PromotionSettled",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "buyer",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "referrer",
+        "type": "address"
+      }
+    ],
+    "name": "ReferrerBound",
     "type": "event"
   },
   {
@@ -457,6 +632,40 @@
   {
     "inputs": [
       {
+        "internalType": "uint8[]",
+        "name": "mainNumbers",
+        "type": "uint8[]"
+      },
+      {
+        "internalType": "uint8[]",
+        "name": "extraNumbers",
+        "type": "uint8[]"
+      },
+      {
+        "internalType": "address",
+        "name": "referrer",
+        "type": "address"
+      }
+    ],
+    "name": "buyLottoSystemTicketWithReferrer",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "firstTicketId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "entryCount",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint8",
         "name": "gameType",
         "type": "uint8"
@@ -473,6 +682,40 @@
       }
     ],
     "name": "buyTicket",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "ticketId",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint8",
+        "name": "gameType",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint8[]",
+        "name": "mainNumbers",
+        "type": "uint8[]"
+      },
+      {
+        "internalType": "uint8[]",
+        "name": "extraNumbers",
+        "type": "uint8[]"
+      },
+      {
+        "internalType": "address",
+        "name": "referrer",
+        "type": "address"
+      }
+    ],
+    "name": "buyTicketWithReferrer",
     "outputs": [
       {
         "internalType": "uint256",
@@ -515,6 +758,13 @@
       }
     ],
     "name": "claimPrize",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "claimPromotionReward",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -722,9 +972,19 @@
         "type": "uint8"
       },
       {
+        "internalType": "uint256",
+        "name": "weight",
+        "type": "uint256"
+      },
+      {
         "internalType": "uint16",
-        "name": "poolBps",
+        "name": "maxPoolBps",
         "type": "uint16"
+      },
+      {
+        "internalType": "uint256",
+        "name": "maxPrizePerWinner",
+        "type": "uint256"
       },
       {
         "internalType": "bool",
@@ -795,6 +1055,36 @@
           {
             "internalType": "uint256",
             "name": "drawTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint16",
+            "name": "stimulusBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "promotionBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "referralRewardBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "maxPromotersPerRound",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint256",
+            "name": "promotionPool",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "promotionPaid",
             "type": "uint256"
           }
         ],
@@ -941,6 +1231,59 @@
   {
     "inputs": [
       {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "name": "promotionConfigs",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "stimulusBps",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "promotionBps",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "referralRewardBps",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "maxPromotersPerRound",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "promotionRewardBalance",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "requestId",
         "type": "uint256"
@@ -954,6 +1297,25 @@
     "name": "rawFulfillRandomWords",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "referrerOf",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -1063,6 +1425,92 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "roundPromotionTheoreticalRewards",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "roundPromotionTotalTheoretical",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint8",
+        "name": "gameType",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint16",
+        "name": "stimulusBps",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "promotionBps",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "referralRewardBps",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "maxPromotersPerRound",
+        "type": "uint16"
+      }
+    ],
+    "name": "setPromotionConfig",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
