@@ -305,6 +305,23 @@ contract SuperLottery {
         uint8[] calldata mainNumbers,
         uint8[] calldata extraNumbers
     ) external payable returns (uint256 firstTicketId, uint256 entryCount) {
+        return _buyLottoSystemTicket(mainNumbers, extraNumbers, address(0), false);
+    }
+
+    function buyLottoSystemTicketWithReferrer(
+        uint8[] calldata mainNumbers,
+        uint8[] calldata extraNumbers,
+        address referrer
+    ) external payable returns (uint256 firstTicketId, uint256 entryCount) {
+        return _buyLottoSystemTicket(mainNumbers, extraNumbers, referrer, true);
+    }
+
+    function _buyLottoSystemTicket(
+        uint8[] calldata mainNumbers,
+        uint8[] calldata extraNumbers,
+        address referrer,
+        bool useReferrer
+    ) private returns (uint256 firstTicketId, uint256 entryCount) {
         GameConfig storage config = _gameConfig(GAME_LOTTO);
         uint256 roundId = currentRoundId[GAME_LOTTO];
         Round storage round = rounds[GAME_LOTTO][roundId];
@@ -350,6 +367,9 @@ contract SuperLottery {
         }
 
         round.prizePool += msg.value;
+        if (useReferrer) {
+            _recordPromotion(GAME_LOTTO, roundId, round, msg.sender, referrer, entryCount);
+        }
         emit LottoSystemTicketBought(roundId, msg.sender, firstTicketId, entryCount);
     }
 

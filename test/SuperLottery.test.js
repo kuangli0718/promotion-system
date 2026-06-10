@@ -142,6 +142,14 @@ async function closeRoundAfterCutoff(lottery, gameType) {
   await lottery.closeRound(gameType);
 }
 
+async function advanceLottoToNextRound(lottery) {
+  await closeRoundAfterCutoff(lottery, GAME_LOTTO);
+  await lottery.testDrawFixed(GAME_LOTTO, [31, 32, 33, 34, 35], [11, 12]);
+  await lottery.closeRegistration(GAME_LOTTO, 1);
+  await lottery.startNextRound(GAME_LOTTO);
+  return lottery.currentRoundId(GAME_LOTTO);
+}
+
 function assertUniqueInRange(values, length, min, max) {
   const drawn = numbers(values);
   assert.equal(drawn.length, length);
@@ -218,6 +226,22 @@ describe("SuperLottery multi-game prize pools", () => {
     assert.equal(await lottery.roundPromotionTotalTheoretical(GAME_LOTTO, 1), rewardPerTicket);
   });
 
+  it("accrues Lotto system promotion rewards by expanded entry count", async () => {
+    const { lottery, alice, bob, ticketPrice } = await deployLottery();
+    const main = [1, 2, 3, 4, 5, 6];
+    const extra = [1, 2, 3];
+    const entryCount = lottoSystemEntryCount(main.length, extra.length);
+    const expectedReward = entryCount * ticketPrice * DEFAULT_REFERRAL_REWARD_BPS / BPS_DENOMINATOR;
+
+    await lottery.connect(alice).buyLottoSystemTicketWithReferrer(main, extra, bob.address, {
+      value: ticketPrice * entryCount,
+    });
+
+    assert.equal(await lottery.referrerOf(alice.address), bob.address);
+    assert.equal(await lottery.roundPromotionTheoreticalRewards(GAME_LOTTO, 1, bob.address), expectedReward);
+    assert.equal(await lottery.roundPromotionTotalTheoretical(GAME_LOTTO, 1), expectedReward);
+  });
+
   it("keeps the first referrer and ignores later referrer changes", async () => {
     const { lottery, alice, bob, carol, ticketPrice } = await deployLottery();
     const rewardPerTicket = ticketPrice * DEFAULT_REFERRAL_REWARD_BPS / BPS_DENOMINATOR;
@@ -263,6 +287,30 @@ describe("SuperLottery multi-game prize pools", () => {
 
     assert.equal(await lottery.referrerOf(alice.address), zeroAddress);
     assert.equal(await lottery.roundPromotionTotalTheoretical(GAME_LOTTO, 1), 0n);
+  });
+
+  it("rejects a new promoter after the round promoter cap and allows existing promoters", async () => {
+    const { lottery, alice, bob, carol, ticketPrice } = await deployLottery();
+
+    await lottery.setPromotionConfig(GAME_LOTTO, 7000, 3000, 5000, 1);
+    await advanceLottoToNextRound(lottery);
+    const roundId = await lottery.currentRoundId(GAME_LOTTO);
+
+    await lottery.connect(alice).buyTicketWithReferrer(GAME_LOTTO, [1, 2, 3, 4, 5], [1, 2], bob.address, {
+      value: ticketPrice,
+    });
+
+    await assert.rejects(
+      lottery.connect(carol).buyTicketWithReferrer(GAME_LOTTO, [6, 7, 8, 9, 10], [3, 4], alice.address, {
+        value: ticketPrice,
+      }),
+      /TooManyRoundPromoters/
+    );
+
+    await lottery.connect(alice).buyTicketWithReferrer(GAME_LOTTO, [11, 12, 13, 14, 15], [5, 6], bob.address, {
+      value: ticketPrice,
+    });
+    assert.equal(await lottery.roundPromotionTheoreticalRewards(GAME_LOTTO, roundId, bob.address), ticketPrice);
   });
 
   it("allows only the owner to update per-game promotion config", async () => {
