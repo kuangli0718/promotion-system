@@ -104,6 +104,8 @@ contract SuperLottery {
     error InvalidSystemExtraNumberCount();
     error TooManySystemEntries();
     error InvalidPromotionConfig();
+    error InvalidReferrer();
+    error TooManyRoundPromoters();
 
     uint8 private constant GAME_DIGITAL = 0;
     uint8 private constant GAME_NUMBER_LOTTO = 1;
@@ -153,6 +155,11 @@ contract SuperLottery {
     mapping(uint8 => uint16) public reserveBps;
     mapping(uint8 => PromotionConfig) public promotionConfigs;
     mapping(uint256 => DrawRequest) public drawRequests;
+    mapping(address => address) public referrerOf;
+    mapping(uint8 => mapping(uint256 => address[])) private roundPromoters;
+    mapping(uint8 => mapping(uint256 => mapping(address => bool))) private roundPromoterSeen;
+    mapping(uint8 => mapping(uint256 => mapping(address => uint256))) public roundPromotionTheoreticalRewards;
+    mapping(uint8 => mapping(uint256 => uint256)) public roundPromotionTotalTheoretical;
 
     event TicketBought(uint8 indexed gameType, uint256 indexed roundId, uint256 indexed ticketId, address buyer);
     event LottoSystemTicketBought(
@@ -186,6 +193,15 @@ contract SuperLottery {
         uint16 promotionBps,
         uint16 referralRewardBps,
         uint16 maxPromotersPerRound
+    );
+    event ReferrerBound(address indexed buyer, address indexed referrer);
+    event PromotionAccrued(
+        uint8 indexed gameType,
+        uint256 indexed roundId,
+        address indexed referrer,
+        address buyer,
+        uint256 ticketCount,
+        uint256 theoreticalReward
     );
 
     modifier onlyOwner() {
@@ -242,6 +258,25 @@ contract SuperLottery {
         uint8[] calldata mainNumbers,
         uint8[] calldata extraNumbers
     ) external payable returns (uint256 ticketId) {
+        return _buyTicket(gameType, mainNumbers, extraNumbers, address(0), false);
+    }
+
+    function buyTicketWithReferrer(
+        uint8 gameType,
+        uint8[] calldata mainNumbers,
+        uint8[] calldata extraNumbers,
+        address referrer
+    ) external payable returns (uint256 ticketId) {
+        return _buyTicket(gameType, mainNumbers, extraNumbers, referrer, true);
+    }
+
+    function _buyTicket(
+        uint8 gameType,
+        uint8[] calldata mainNumbers,
+        uint8[] calldata extraNumbers,
+        address referrer,
+        bool useReferrer
+    ) private returns (uint256 ticketId) {
         GameConfig storage config = _gameConfig(gameType);
         uint256 roundId = currentRoundId[gameType];
         Round storage round = rounds[gameType][roundId];
@@ -261,6 +296,9 @@ contract SuperLottery {
 
         ticketId = _storeTicket(gameType, roundId, msg.sender, normalizedMain, normalizedExtra);
         round.prizePool += msg.value;
+        if (useReferrer) {
+            _recordPromotion(gameType, roundId, round, msg.sender, referrer, 1);
+        }
     }
 
     function buyLottoSystemTicket(
@@ -752,6 +790,42 @@ contract SuperLottery {
         round.promotionBps = config.promotionBps;
         round.referralRewardBps = config.referralRewardBps;
         round.maxPromotersPerRound = config.maxPromotersPerRound;
+    }
+
+    function _activeReferrer(address buyer, address candidate) private returns (address referrer) {
+        referrer = referrerOf[buyer];
+        if (referrer != address(0)) return referrer;
+        if (candidate == address(0)) return address(0);
+        if (candidate == buyer || referrerOf[candidate] == buyer) revert InvalidReferrer();
+        referrerOf[buyer] = candidate;
+        emit ReferrerBound(buyer, candidate);
+        return candidate;
+    }
+
+    function _recordPromotion(
+        uint8 gameType,
+        uint256 roundId,
+        Round storage round,
+        address buyer,
+        address candidateReferrer,
+        uint256 ticketCount
+    ) private {
+        address referrer = _activeReferrer(buyer, candidateReferrer);
+        if (referrer == address(0) || ticketCount == 0) return;
+
+        if (!roundPromoterSeen[gameType][roundId][referrer]) {
+            if (roundPromoters[gameType][roundId].length >= round.maxPromotersPerRound) {
+                revert TooManyRoundPromoters();
+            }
+            roundPromoterSeen[gameType][roundId][referrer] = true;
+            roundPromoters[gameType][roundId].push(referrer);
+        }
+
+        uint256 theoreticalReward = (ticketPrice * ticketCount * round.referralRewardBps) / BPS_DENOMINATOR;
+        roundPromotionTheoreticalRewards[gameType][roundId][referrer] += theoreticalReward;
+        roundPromotionTotalTheoretical[gameType][roundId] += theoreticalReward;
+
+        emit PromotionAccrued(gameType, roundId, referrer, buyer, ticketCount, theoreticalReward);
     }
 
     function _setWinningNumbers(uint8 gameType, uint256 roundId, uint256 randomWord) private {

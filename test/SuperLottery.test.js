@@ -201,6 +201,70 @@ describe("SuperLottery multi-game prize pools", () => {
     }
   });
 
+  it("binds a valid referrer on first referrer purchase and accrues theoretical reward", async () => {
+    const { lottery, alice, bob, ticketPrice } = await deployLottery();
+    const rewardPerTicket = ticketPrice * DEFAULT_REFERRAL_REWARD_BPS / BPS_DENOMINATOR;
+
+    await lottery.connect(alice).buyTicketWithReferrer(
+      GAME_LOTTO,
+      [1, 2, 3, 4, 5],
+      [1, 2],
+      bob.address,
+      { value: ticketPrice }
+    );
+
+    assert.equal(await lottery.referrerOf(alice.address), bob.address);
+    assert.equal(await lottery.roundPromotionTheoreticalRewards(GAME_LOTTO, 1, bob.address), rewardPerTicket);
+    assert.equal(await lottery.roundPromotionTotalTheoretical(GAME_LOTTO, 1), rewardPerTicket);
+  });
+
+  it("keeps the first referrer and ignores later referrer changes", async () => {
+    const { lottery, alice, bob, carol, ticketPrice } = await deployLottery();
+    const rewardPerTicket = ticketPrice * DEFAULT_REFERRAL_REWARD_BPS / BPS_DENOMINATOR;
+
+    await lottery.connect(alice).buyTicketWithReferrer(GAME_LOTTO, [1, 2, 3, 4, 5], [1, 2], bob.address, {
+      value: ticketPrice,
+    });
+    await lottery.connect(alice).buyTicketWithReferrer(GAME_LOTTO, [6, 7, 8, 9, 10], [3, 4], carol.address, {
+      value: ticketPrice,
+    });
+
+    assert.equal(await lottery.referrerOf(alice.address), bob.address);
+    assert.equal(await lottery.roundPromotionTheoreticalRewards(GAME_LOTTO, 1, bob.address), rewardPerTicket * 2n);
+    assert.equal(await lottery.roundPromotionTheoreticalRewards(GAME_LOTTO, 1, carol.address), 0n);
+  });
+
+  it("rejects self-referral and direct reciprocal referral", async () => {
+    const { lottery, alice, bob, ticketPrice } = await deployLottery();
+
+    await assert.rejects(
+      lottery.connect(alice).buyTicketWithReferrer(GAME_LOTTO, [1, 2, 3, 4, 5], [1, 2], alice.address, {
+        value: ticketPrice,
+      }),
+      /InvalidReferrer/
+    );
+
+    await lottery.connect(alice).buyTicketWithReferrer(GAME_LOTTO, [1, 2, 3, 4, 5], [1, 2], bob.address, {
+      value: ticketPrice,
+    });
+
+    await assert.rejects(
+      lottery.connect(bob).buyTicketWithReferrer(GAME_LOTTO, [6, 7, 8, 9, 10], [3, 4], alice.address, {
+        value: ticketPrice,
+      }),
+      /InvalidReferrer/
+    );
+  });
+
+  it("does not accrue promotion rewards through compatibility purchase functions", async () => {
+    const { lottery, alice, ticketPrice } = await deployLottery();
+
+    await lottery.connect(alice).buyTicket(GAME_LOTTO, [1, 2, 3, 4, 5], [1, 2], { value: ticketPrice });
+
+    assert.equal(await lottery.referrerOf(alice.address), zeroAddress);
+    assert.equal(await lottery.roundPromotionTotalTheoretical(GAME_LOTTO, 1), 0n);
+  });
+
   it("allows only the owner to update per-game promotion config", async () => {
     const { lottery, alice } = await deployLottery();
 
