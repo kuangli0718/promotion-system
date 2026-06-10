@@ -53,7 +53,7 @@ async function deployLottery() {
 
 async function deployLotteryWithTicketPrice(price) {
   const { ethers } = await network.getOrCreate();
-  const [owner, alice, bob, carol] = await ethers.getSigners();
+  const [owner, alice, bob, carol, dave] = await ethers.getSigners();
   const Lottery = await ethers.getContractFactory("SuperLottery");
   const lottery = await Lottery.deploy(
     price,
@@ -65,7 +65,7 @@ async function deployLotteryWithTicketPrice(price) {
     true
   );
   await lottery.waitForDeployment();
-  return { ethers, lottery, owner, alice, bob, carol, ticketPrice: price };
+  return { ethers, lottery, owner, alice, bob, carol, dave, ticketPrice: price };
 }
 
 async function deployLotteryWithMockCoordinator() {
@@ -429,17 +429,23 @@ describe("SuperLottery multi-game prize pools", () => {
   });
 
   it("returns promotion settlement dust to stimulus rollover", async () => {
-    const { lottery, alice, bob } = await deployLotteryWithTicketPrice(3n);
+    const { lottery, alice, bob, carol, dave } = await deployLotteryWithTicketPrice(3n);
     await lottery.setPromotionConfig(GAME_LOTTO, 5000, 5000, 5000, 200);
     const roundId = await advanceLottoToNextRound(lottery);
     await lottery.connect(alice).buyTicketWithReferrer(GAME_LOTTO, [1, 2, 3, 4, 5], [1, 2], bob.address, {
       value: 3n,
     });
+    await lottery.connect(carol).buyTicketWithReferrer(GAME_LOTTO, [6, 7, 8, 9, 10], [3, 4], dave.address, {
+      value: 3n,
+    });
 
     const round = await closeLosingLottoRound(lottery, roundId);
-    assert.equal(round.promotionPool, 1n);
-    assert.equal(round.promotionPaid, 1n);
-    assert.equal(round.reserveRollover, 2n);
+    assert.equal(round.promotionPool, 3n);
+    assert.equal(round.promotionPaid, 2n);
+    assert.equal(await lottery.promotionRewardBalance(bob.address), 1n);
+    assert.equal(await lottery.promotionRewardBalance(dave.address), 1n);
+    assert.equal(round.reserveRollover, 4n);
+    assert.equal(await lottery.rolloverReserve(GAME_LOTTO), 4n);
   });
 
   it("initializes each game round with UTC daily timing", async () => {
