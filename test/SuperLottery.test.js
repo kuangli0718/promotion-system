@@ -150,6 +150,13 @@ async function advanceLottoToNextRound(lottery) {
   return lottery.currentRoundId(GAME_LOTTO);
 }
 
+async function closeLosingLottoRound(lottery, roundId) {
+  await closeRoundAfterCutoff(lottery, GAME_LOTTO);
+  await lottery.testDrawFixed(GAME_LOTTO, [31, 32, 33, 34, 35], [11, 12]);
+  await lottery.closeRegistration(GAME_LOTTO, roundId);
+  return lottery.getRound(GAME_LOTTO, roundId);
+}
+
 function assertUniqueInRange(values, length, min, max) {
   const drawn = numbers(values);
   assert.equal(drawn.length, length);
@@ -369,6 +376,70 @@ describe("SuperLottery multi-game prize pools", () => {
     assert.equal(round2.promotionBps, 3000n);
     assert.equal(round2.referralRewardBps, 5000n);
     assert.equal(round2.maxPromotersPerRound, 100n);
+  });
+
+  it("settles promotion rewards from leftover according to promotion bps", async () => {
+    const { lottery, alice, bob, ticketPrice } = await deployLottery();
+    await lottery.setPromotionConfig(GAME_LOTTO, 5000, 5000, 5000, 200);
+    const roundId = await advanceLottoToNextRound(lottery);
+
+    await lottery.connect(alice).buyTicketWithReferrer(GAME_LOTTO, [1, 2, 3, 4, 5], [1, 2], bob.address, {
+      value: ticketPrice,
+    });
+
+    const round = await closeLosingLottoRound(lottery, roundId);
+    assert.equal(round.promotionPool, ticketPrice / 2n);
+    assert.equal(round.promotionPaid, ticketPrice / 2n);
+    assert.equal(round.reserveRollover, ticketPrice / 2n);
+    assert.equal(await lottery.promotionRewardBalance(bob.address), ticketPrice / 2n);
+    assert.equal(await lottery.rolloverReserve(GAME_LOTTO), ticketPrice / 2n);
+  });
+
+  it("proportionally scales promotion rewards when theoretical rewards exceed the promotion pool", async () => {
+    const { lottery, alice, bob, carol, ticketPrice } = await deployLottery();
+    await lottery.setPromotionConfig(GAME_LOTTO, 7500, 2500, 5000, 200);
+    const roundId = await advanceLottoToNextRound(lottery);
+
+    await lottery.connect(alice).buyTicketWithReferrer(GAME_LOTTO, [1, 2, 3, 4, 5], [1, 2], bob.address, {
+      value: ticketPrice,
+    });
+    await lottery.connect(carol).buyTicketWithReferrer(GAME_LOTTO, [6, 7, 8, 9, 10], [3, 4], bob.address, {
+      value: ticketPrice,
+    });
+
+    const round = await closeLosingLottoRound(lottery, roundId);
+    const expectedPool = (ticketPrice * 2n) * 2500n / BPS_DENOMINATOR;
+    assert.equal(round.promotionPool, expectedPool);
+    assert.equal(round.promotionPaid, expectedPool);
+    assert.equal(await lottery.promotionRewardBalance(bob.address), expectedPool);
+    assert.equal(round.reserveRollover, (ticketPrice * 2n) - expectedPool);
+  });
+
+  it("rolls all leftover forward when there are no promotion rewards", async () => {
+    const { lottery, alice, ticketPrice } = await deployLottery();
+    await lottery.setPromotionConfig(GAME_LOTTO, 5000, 5000, 5000, 200);
+    const roundId = await advanceLottoToNextRound(lottery);
+    await lottery.connect(alice).buyTicket(GAME_LOTTO, [1, 2, 3, 4, 5], [1, 2], { value: ticketPrice });
+
+    const round = await closeLosingLottoRound(lottery, roundId);
+    assert.equal(round.promotionPool, 0n);
+    assert.equal(round.promotionPaid, 0n);
+    assert.equal(round.reserveRollover, ticketPrice);
+    assert.equal(await lottery.rolloverReserve(GAME_LOTTO), ticketPrice);
+  });
+
+  it("returns promotion settlement dust to stimulus rollover", async () => {
+    const { lottery, alice, bob } = await deployLotteryWithTicketPrice(3n);
+    await lottery.setPromotionConfig(GAME_LOTTO, 5000, 5000, 5000, 200);
+    const roundId = await advanceLottoToNextRound(lottery);
+    await lottery.connect(alice).buyTicketWithReferrer(GAME_LOTTO, [1, 2, 3, 4, 5], [1, 2], bob.address, {
+      value: 3n,
+    });
+
+    const round = await closeLosingLottoRound(lottery, roundId);
+    assert.equal(round.promotionPool, 1n);
+    assert.equal(round.promotionPaid, 1n);
+    assert.equal(round.reserveRollover, 2n);
   });
 
   it("initializes each game round with UTC daily timing", async () => {

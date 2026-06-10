@@ -160,6 +160,7 @@ contract SuperLottery {
     mapping(uint8 => mapping(uint256 => mapping(address => bool))) private roundPromoterSeen;
     mapping(uint8 => mapping(uint256 => mapping(address => uint256))) public roundPromotionTheoreticalRewards;
     mapping(uint8 => mapping(uint256 => uint256)) public roundPromotionTotalTheoretical;
+    mapping(address => uint256) public promotionRewardBalance;
 
     event TicketBought(uint8 indexed gameType, uint256 indexed roundId, uint256 indexed ticketId, address buyer);
     event LottoSystemTicketBought(
@@ -202,6 +203,13 @@ contract SuperLottery {
         address buyer,
         uint256 ticketCount,
         uint256 theoreticalReward
+    );
+    event PromotionSettled(
+        uint8 indexed gameType,
+        uint256 indexed roundId,
+        uint256 promotionPool,
+        uint256 totalTheoretical,
+        uint256 promotionPaid
     );
 
     modifier onlyOwner() {
@@ -507,8 +515,7 @@ contract SuperLottery {
         }
 
         if (totalEffectiveWeight == 0) {
-            round.reserveRollover = round.prizePool;
-            rolloverReserve[gameType] += round.prizePool;
+            _settlePromotion(gameType, roundId, round, round.prizePool);
             round.status = RoundStatus.Claimable;
             emit RegistrationClosed(gameType, roundId);
             return;
@@ -530,8 +537,7 @@ contract SuperLottery {
             totalPaid += prizePerWinner * winners;
         }
 
-        round.reserveRollover = round.prizePool - totalPaid;
-        rolloverReserve[gameType] += round.reserveRollover;
+        _settlePromotion(gameType, roundId, round, round.prizePool - totalPaid);
 
         round.status = RoundStatus.Claimable;
         emit RegistrationClosed(gameType, roundId);
@@ -810,6 +816,46 @@ contract SuperLottery {
         round.promotionBps = config.promotionBps;
         round.referralRewardBps = config.referralRewardBps;
         round.maxPromotersPerRound = config.maxPromotersPerRound;
+    }
+
+    function _settlePromotion(
+        uint8 gameType,
+        uint256 roundId,
+        Round storage round,
+        uint256 leftover
+    ) private {
+        uint256 totalTheoretical = roundPromotionTotalTheoretical[gameType][roundId];
+        if (totalTheoretical == 0 || round.promotionBps == 0) {
+            round.reserveRollover = leftover;
+            round.promotionPool = 0;
+            round.promotionPaid = 0;
+            rolloverReserve[gameType] += leftover;
+            emit PromotionSettled(gameType, roundId, 0, totalTheoretical, 0);
+            return;
+        }
+
+        uint256 promotionPool = (leftover * round.promotionBps) / BPS_DENOMINATOR;
+        uint256 stimulusRollover = leftover - promotionPool;
+        uint256 promotionPaid = 0;
+        address[] storage promoters = roundPromoters[gameType][roundId];
+
+        for (uint256 i = 0; i < promoters.length; i++) {
+            address promoter = promoters[i];
+            uint256 theoretical = roundPromotionTheoreticalRewards[gameType][roundId][promoter];
+            if (theoretical == 0) continue;
+            uint256 reward = (theoretical * promotionPool) / totalTheoretical;
+            if (reward == 0) continue;
+            promotionRewardBalance[promoter] += reward;
+            promotionPaid += reward;
+        }
+
+        uint256 promotionDust = promotionPool - promotionPaid;
+        round.reserveRollover = stimulusRollover + promotionDust;
+        round.promotionPool = promotionPool;
+        round.promotionPaid = promotionPaid;
+        rolloverReserve[gameType] += round.reserveRollover;
+
+        emit PromotionSettled(gameType, roundId, promotionPool, totalTheoretical, promotionPaid);
     }
 
     function _activeReferrer(address buyer, address candidate) private returns (address referrer) {
