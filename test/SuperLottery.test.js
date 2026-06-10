@@ -260,7 +260,7 @@ describe("SuperLottery multi-game prize pools", () => {
 
     await assert.rejects(
       lottery.connect(alice).closeRound(GAME_KENO),
-      /OnlyOwner/
+      /OnlyOwner|0x5fc483c5/
     );
   });
 

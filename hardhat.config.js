@@ -1,4 +1,5 @@
 import hardhatEthers from "@nomicfoundation/hardhat-ethers";
+import { defineConfig } from "hardhat/config";
 import { existsSync, readFileSync } from "node:fs";
 
 if (existsSync(".env")) {
@@ -29,16 +30,21 @@ if (SEPOLIA_RPC_URL) {
   };
 }
 
-export default {
+export default defineConfig({
   plugins: [hardhatEthers],
   solidity: {
-    version: "0.8.24",
-    settings: {
-      optimizer: {
-        enabled: true,
-        runs: 200
+    profiles: {
+      default: {
+        version: "0.8.24",
+        settings: {
+          viaIR: true,
+          optimizer: {
+            enabled: true,
+            runs: 200
+          }
+        }
       }
     }
   },
   networks
-};
+});
