@@ -90,6 +90,10 @@ The frontend shows entry count, total price, first-prize probability, and per-ti
 
 Because this adds a new contract function, deploy a new contract and update `VITE_SUPER_LOTTERY_ADDRESS` before testing on Sepolia.
 
+## Promotion Rewards
+
+The owner can split each game round's leftover prize pool between next-round stimulus and referral promotion. Referrers are bound permanently on a buyer's first referrer purchase. Each effective invited ticket earns a theoretical reward of 50% of the ticket price, and actual rewards are capped by the round's promotion pool. Promoters claim settled rewards from the frontend or by calling `claimPromotionReward()`.
+
 ## Development
 
 ```bash
