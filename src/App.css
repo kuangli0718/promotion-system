@@ -143,7 +143,7 @@ h3 {
 
 .status-band {
   display: grid;
-  grid-template-columns: 0.9fr 0.8fr 1.7fr 1fr 1.35fr 1.15fr 0.9fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 1px;
   overflow: hidden;
   border: 1px solid #ccd3d8;
@@ -712,6 +712,61 @@ h3 {
 
 .admin-flow {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.admin-config {
+  margin-top: 14px;
+  border-top: 1px solid #e4e8eb;
+  padding-top: 14px;
+}
+
+.admin-config-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-config h3 {
+  margin: 0;
+}
+
+.admin-config p {
+  margin-top: 4px;
+}
+
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.config-grid label {
+  display: grid;
+  gap: 0.35rem;
+  color: #68756f;
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.config-grid input {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  border: 1px solid #c9d0d6;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #16201b;
+  padding: 0 10px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.config-grid input:focus {
+  border-color: #0e6848;
+  outline: 2px solid rgba(14, 104, 72, 0.16);
+  outline-offset: 1px;
 }
 
 .admin-step {

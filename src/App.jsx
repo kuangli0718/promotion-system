@@ -50,7 +50,13 @@ function parseRound(rawRound) {
     reserveRollover: rawRound.reserveRollover,
     openTime: rawRound.openTime,
     closeTime: rawRound.closeTime,
-    drawTime: rawRound.drawTime
+    drawTime: rawRound.drawTime,
+    stimulusBps: rawRound.stimulusBps,
+    promotionBps: rawRound.promotionBps,
+    referralRewardBps: rawRound.referralRewardBps,
+    maxPromotersPerRound: rawRound.maxPromotersPerRound,
+    promotionPool: rawRound.promotionPool,
+    promotionPaid: rawRound.promotionPaid
   };
 }
 
@@ -221,6 +227,11 @@ export default function App() {
   const [boundReferrer, setBoundReferrer] = useState("");
   const [referrerInput, setReferrerInput] = useState("");
   const [promotionRewardBalance, setPromotionRewardBalance] = useState(0n);
+  const [promotionConfig, setPromotionConfig] = useState(null);
+  const [stimulusBpsInput, setStimulusBpsInput] = useState("10000");
+  const [promotionBpsInput, setPromotionBpsInput] = useState("0");
+  const [referralRewardBpsInput, setReferralRewardBpsInput] = useState("5000");
+  const [maxPromotersInput, setMaxPromotersInput] = useState("200");
   const refreshSeq = useRef(0);
   const { contextSafe } = useGSAP({ scope: appRef });
 
@@ -452,6 +463,7 @@ export default function App() {
     const price = await contract.ticketPrice();
     const count = await contract.getRoundTicketCount(requestGameType, currentRoundId);
     const owner = await contract.owner();
+    const config = await contract.promotionConfigs(requestGameType);
     const history = [];
     const currentRoundNumber = Number(currentRoundId);
     const firstRound = Math.max(1, currentRoundNumber - HISTORY_LIMIT + 1);
@@ -523,6 +535,17 @@ export default function App() {
     setIsOwner(Boolean(knownAccount) && owner.toLowerCase() === knownAccount.toLowerCase());
     setBoundReferrer(nextBoundReferrer);
     setPromotionRewardBalance(nextPromotionRewardBalance);
+    const parsedPromotionConfig = {
+      stimulusBps: Number(config.stimulusBps),
+      promotionBps: Number(config.promotionBps),
+      referralRewardBps: Number(config.referralRewardBps),
+      maxPromotersPerRound: Number(config.maxPromotersPerRound)
+    };
+    setPromotionConfig(parsedPromotionConfig);
+    setStimulusBpsInput(String(parsedPromotionConfig.stimulusBps));
+    setPromotionBpsInput(String(parsedPromotionConfig.promotionBps));
+    setReferralRewardBpsInput(String(parsedPromotionConfig.referralRewardBps));
+    setMaxPromotersInput(String(parsedPromotionConfig.maxPromotersPerRound));
   }, [account, selectedGame, selectedGameType]);
 
   useEffect(() => {
@@ -618,6 +641,31 @@ export default function App() {
     await transact(
       (contract) => contract.claimPromotionReward(),
       "Promotion reward claimed."
+    );
+  }
+
+  async function savePromotionConfig() {
+    const stimulus = Number(stimulusBpsInput);
+    const promotion = Number(promotionBpsInput);
+    const referralReward = Number(referralRewardBpsInput);
+    const maxPromoters = Number(maxPromotersInput);
+
+    if (!Number.isInteger(stimulus) || !Number.isInteger(promotion) || stimulus + promotion !== 10000) {
+      setMessage("Stimulus and promotion BPS must sum to 10000.");
+      return;
+    }
+    if (!Number.isInteger(referralReward) || referralReward < 0 || referralReward >= 10000) {
+      setMessage("Referral reward BPS must be from 0 to 9999.");
+      return;
+    }
+    if (!Number.isInteger(maxPromoters) || maxPromoters <= 0) {
+      setMessage("Max promoters must be greater than zero.");
+      return;
+    }
+
+    await transact(
+      (contract) => contract.setPromotionConfig(selectedGameType, stimulus, promotion, referralReward, maxPromoters),
+      "Promotion config updated for future rounds."
     );
   }
 
@@ -730,6 +778,20 @@ export default function App() {
         <div>
           <span className="label">Ticket</span>
           <strong>{ticketPrice ? `${ethers.formatEther(ticketPrice)} ETH` : "-"}</strong>
+        </div>
+        <div>
+          <span className="label">Stimulus / Promotion</span>
+          <strong>
+            {round ? `${Number(round.stimulusBps) / 100}% / ${Number(round.promotionBps) / 100}%` : "-"}
+          </strong>
+        </div>
+        <div>
+          <span className="label">Promotion Pool</span>
+          <strong>{round ? `${ethers.formatEther(round.promotionPool)} ETH` : "-"}</strong>
+        </div>
+        <div>
+          <span className="label">Promotion Paid</span>
+          <strong>{round ? `${ethers.formatEther(round.promotionPaid)} ETH` : "-"}</strong>
         </div>
         <div>
           <span className="label">Promotion</span>
@@ -948,6 +1010,10 @@ export default function App() {
             <strong>{round?.requestId ? round.requestId.toString() : "-"}</strong>
             <span>Rollover</span>
             <strong>{round ? `${ethers.formatEther(round.reserveRollover)} ETH` : "-"}</strong>
+            <span>Promotion Pool</span>
+            <strong>{round ? `${ethers.formatEther(round.promotionPool)} ETH` : "-"}</strong>
+            <span>Promotion Paid</span>
+            <strong>{round ? `${ethers.formatEther(round.promotionPaid)} ETH` : "-"}</strong>
           </div>
         </aside>
       </section>
@@ -1106,6 +1172,63 @@ export default function App() {
               </article>
             ))}
           </div>
+          <section className="admin-config">
+            <div className="admin-config-head">
+              <div>
+                <h3>Promotion config</h3>
+                <p className="muted">Applies to future rounds for the selected game.</p>
+              </div>
+              {promotionConfig && (
+                <span className="section-count">
+                  Current {promotionConfig.stimulusBps / 100}% / {promotionConfig.promotionBps / 100}%
+                </span>
+              )}
+            </div>
+            <div className="config-grid">
+              <label>
+                Stimulus BPS
+                <input
+                  type="number"
+                  min="0"
+                  max="10000"
+                  value={stimulusBpsInput}
+                  onChange={(event) => setStimulusBpsInput(event.target.value)}
+                />
+              </label>
+              <label>
+                Promotion BPS
+                <input
+                  type="number"
+                  min="0"
+                  max="10000"
+                  value={promotionBpsInput}
+                  onChange={(event) => setPromotionBpsInput(event.target.value)}
+                />
+              </label>
+              <label>
+                Referral Reward BPS
+                <input
+                  type="number"
+                  min="0"
+                  max="9999"
+                  value={referralRewardBpsInput}
+                  onChange={(event) => setReferralRewardBpsInput(event.target.value)}
+                />
+              </label>
+              <label>
+                Max Promoters
+                <input
+                  type="number"
+                  min="1"
+                  value={maxPromotersInput}
+                  onChange={(event) => setMaxPromotersInput(event.target.value)}
+                />
+              </label>
+            </div>
+            <button type="button" disabled={busy} onClick={savePromotionConfig}>
+              Save promotion config
+            </button>
+          </section>
         </section>
       )}
 
