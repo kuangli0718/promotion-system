@@ -22,6 +22,7 @@ async function main() {
   const keyHash = requiredEnv("VRF_KEY_HASH");
   const callbackGasLimit = Number(process.env.VRF_CALLBACK_GAS_LIMIT || "500000");
   const nativePayment = process.env.VRF_NATIVE_PAYMENT !== "false";
+  const localTesting = process.env.LOCAL_TESTING === "true";
 
   const lottery = await Lottery.deploy(
     ticketPrice,
@@ -29,13 +30,16 @@ async function main() {
     subscriptionId,
     keyHash,
     callbackGasLimit,
-    false,
+    localTesting,
     nativePayment
   );
   await lottery.waitForDeployment();
 
   console.log(`SuperLottery deployed to ${await lottery.getAddress()}`);
-  console.log("Add this address as a consumer in your Chainlink VRF subscription.");
+  console.log(`Local testing draw enabled: ${localTesting}`);
+  if (!localTesting) {
+    console.log("Add this address as a consumer in your Chainlink VRF subscription.");
+  }
 }
 
 main().catch((error) => {

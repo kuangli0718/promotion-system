@@ -6,7 +6,7 @@ export const LOTTERY_ABI = abi;
 export const SEPOLIA_CHAIN_ID = 11155111n;
 export const SEPOLIA_CHAIN_ID_HEX = "0xaa36a7";
 
-export const STATUS_LABELS = ["Open", "Closed", "Drawing", "Drawn", "Claimable"];
+export const STATUS_LABELS = ["销售中", "已封盘", "开奖中", "已开奖", "可领奖"];
 export const HISTORY_LIMIT = 20;
 export const SECOND_MS = 1000;
 export const LOTTO_TOTAL_COMBINATIONS = combination(35, 5) * combination(12, 2);
@@ -16,7 +16,7 @@ export const UTC_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
   month: "2-digit",
   day: "2-digit"
 });
-export const UTC_WEEKDAY_FORMATTER = new Intl.DateTimeFormat("en-US", {
+export const UTC_WEEKDAY_FORMATTER = new Intl.DateTimeFormat("zh-CN", {
   timeZone: "UTC",
   weekday: "long"
 });
@@ -307,15 +307,15 @@ export function randomPickForArea(area, count = area.pick) {
 
 export async function getLotteryContract(withSigner = false) {
   if (!window.ethereum) {
-    throw new Error("Wallet not found");
+    throw new Error("未检测到钱包");
   }
   if (!LOTTERY_ADDRESS) {
-    throw new Error("Set VITE_SUPER_LOTTERY_ADDRESS in .env");
+    throw new Error("请在 .env 中设置 VITE_SUPER_LOTTERY_ADDRESS");
   }
   const provider = new ethers.BrowserProvider(window.ethereum);
   const network = await provider.getNetwork();
   if (network.chainId !== SEPOLIA_CHAIN_ID) {
-    throw new Error("Switch wallet network to Sepolia");
+    throw new Error("请将钱包网络切换到 Sepolia");
   }
   if (withSigner) {
     return new ethers.Contract(LOTTERY_ADDRESS, LOTTERY_ABI, await provider.getSigner());
@@ -325,7 +325,7 @@ export async function getLotteryContract(withSigner = false) {
 
 export async function switchToSepolia() {
   if (!window.ethereum) {
-    throw new Error("Wallet not found");
+    throw new Error("未检测到钱包");
   }
   try {
     await window.ethereum.request({

@@ -107,6 +107,7 @@ contract SuperLottery {
     error InvalidReferrer();
     error TooManyRoundPromoters();
     error NoPromotionReward();
+    error NoContractBalance();
 
     uint8 private constant GAME_DIGITAL = 0;
     uint8 private constant GAME_NUMBER_LOTTO = 1;
@@ -393,6 +394,16 @@ contract SuperLottery {
         emit RoundClosed(gameType, roundId);
     }
 
+    function testCloseRound(uint8 gameType) external onlyOwner {
+        if (!localTesting) revert LocalTestingDisabled();
+        _requireValidGame(gameType);
+        uint256 roundId = currentRoundId[gameType];
+        Round storage round = rounds[gameType][roundId];
+        if (round.status != RoundStatus.Open) revert RoundNotOpen();
+        round.status = RoundStatus.Closed;
+        emit RoundClosed(gameType, roundId);
+    }
+
     function setPromotionConfig(
         uint8 gameType,
         uint16 stimulusBps,
@@ -575,6 +586,18 @@ contract SuperLottery {
         emit PromotionRewardClaimed(msg.sender, amount);
     }
 
+    // 管理者取合约余额的功能：仅测试模式可用，用于回收测试网 ETH，并同步清理当前测试账面奖池。
+    function testWithdrawBalance() external onlyOwner {
+        if (!localTesting) revert LocalTestingDisabled();
+        uint256 amount = address(this).balance;
+        if (amount == 0) revert NoContractBalance();
+
+        _clearCurrentTestingLedger();
+
+        (bool sent,) = msg.sender.call{value: amount}("");
+        require(sent, "TEST_WITHDRAW_FAILED");
+    }
+
     function startNextRound(uint8 gameType) external onlyOwner {
         _requireValidGame(gameType);
         uint256 roundId = currentRoundId[gameType];
@@ -596,6 +619,26 @@ contract SuperLottery {
         next.prizePool = rolloverReserve[gameType];
         next.openTime = nextOpenTime;
         next.closeTime = nextCloseTime;
+        _lockPromotionConfig(gameType, next);
+        rolloverReserve[gameType] = 0;
+
+        emit RoundStarted(gameType, nextRoundId, next.prizePool);
+    }
+
+    function testStartNextRoundNow(uint8 gameType) external onlyOwner {
+        if (!localTesting) revert LocalTestingDisabled();
+        _requireValidGame(gameType);
+        uint256 roundId = currentRoundId[gameType];
+        Round storage current = rounds[gameType][roundId];
+        if (current.status != RoundStatus.Claimable) revert RoundNotClaimable();
+
+        uint256 nextRoundId = roundId + 1;
+        currentRoundId[gameType] = nextRoundId;
+        Round storage next = rounds[gameType][nextRoundId];
+        next.status = RoundStatus.Open;
+        next.prizePool = rolloverReserve[gameType];
+        next.openTime = block.timestamp;
+        next.closeTime = block.timestamp + UTC_DAY;
         _lockPromotionConfig(gameType, next);
         rolloverReserve[gameType] = 0;
 
@@ -829,6 +872,18 @@ contract SuperLottery {
         round.promotionBps = config.promotionBps;
         round.referralRewardBps = config.referralRewardBps;
         round.maxPromotersPerRound = config.maxPromotersPerRound;
+    }
+
+    function _clearCurrentTestingLedger() private {
+        for (uint8 gameType = 0; gameType < MAX_GAMES; gameType++) {
+            uint256 roundId = currentRoundId[gameType];
+            Round storage round = rounds[gameType][roundId];
+            round.prizePool = 0;
+            round.reserveRollover = 0;
+            round.promotionPool = 0;
+            round.promotionPaid = 0;
+            rolloverReserve[gameType] = 0;
+        }
     }
 
     function _settlePromotion(

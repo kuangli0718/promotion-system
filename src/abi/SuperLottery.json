@@ -112,6 +112,11 @@
   },
   {
     "inputs": [],
+    "name": "NoContractBalance",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "NoPromotionReward",
     "type": "error"
   },
@@ -1545,6 +1550,19 @@
         "internalType": "uint8",
         "name": "gameType",
         "type": "uint8"
+      }
+    ],
+    "name": "testCloseRound",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint8",
+        "name": "gameType",
+        "type": "uint8"
       },
       {
         "internalType": "uint256",
@@ -1576,6 +1594,26 @@
       }
     ],
     "name": "testDrawFixed",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint8",
+        "name": "gameType",
+        "type": "uint8"
+      }
+    ],
+    "name": "testStartNextRoundNow",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "testWithdrawBalance",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

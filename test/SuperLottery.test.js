@@ -521,6 +521,87 @@ describe("SuperLottery multi-game prize pools", () => {
     assert.equal(closed.status, 1n);
   });
 
+  it("allows local testing contracts to close a round before closeTime", async () => {
+    const { lottery } = await deployLottery();
+    const round = await lottery.getRound(GAME_LOTTO, 1);
+    requireRoundTiming(round);
+
+    await lottery.testCloseRound(GAME_LOTTO);
+
+    const closed = await lottery.getRound(GAME_LOTTO, 1);
+    assert.equal(closed.status, 1n);
+    assert.equal(closed.closeTime, round.closeTime);
+  });
+
+  it("rejects test close on production VRF contracts", async () => {
+    const { lottery } = await deployLotteryWithMockCoordinator();
+
+    await assert.rejects(
+      lottery.testCloseRound(GAME_LOTTO),
+      /LocalTestingDisabled/
+    );
+  });
+
+  it("allows only the local testing owner to withdraw the contract balance and clear testing ledger", async () => {
+    const { ethers, lottery, alice, ticketPrice } = await deployLottery();
+    await lottery.connect(alice).buyTicket(GAME_LOTTO, [1, 2, 3, 4, 5], [1, 2], { value: ticketPrice });
+
+    assert.equal(await ethers.provider.getBalance(await lottery.getAddress()), ticketPrice);
+    const beforeWithdraw = await lottery.getRound(GAME_LOTTO, 1);
+    assert.equal(beforeWithdraw.prizePool, ticketPrice);
+
+    await assert.rejects(
+      lottery.connect(alice).testWithdrawBalance(),
+      /OnlyOwner/
+    );
+
+    await lottery.testWithdrawBalance();
+    assert.equal(await ethers.provider.getBalance(await lottery.getAddress()), 0n);
+    const afterWithdraw = await lottery.getRound(GAME_LOTTO, 1);
+    assert.equal(afterWithdraw.prizePool, 0n);
+    assert.equal(afterWithdraw.reserveRollover, 0n);
+    assert.equal(afterWithdraw.promotionPool, 0n);
+    assert.equal(afterWithdraw.promotionPaid, 0n);
+    assert.equal(await lottery.rolloverReserve(GAME_LOTTO), 0n);
+  });
+
+  it("rejects test balance withdrawal on production VRF contracts", async () => {
+    const { lottery } = await deployLotteryWithMockCoordinator();
+
+    await assert.rejects(
+      lottery.testWithdrawBalance(),
+      /LocalTestingDisabled/
+    );
+  });
+
+  it("starts the next local testing round immediately", async () => {
+    const { lottery, alice, ticketPrice } = await deployLottery();
+
+    await lottery.connect(alice).buyTicket(GAME_LOTTO, [1, 2, 3, 4, 5], [1, 2], { value: ticketPrice });
+    await lottery.testCloseRound(GAME_LOTTO);
+    await lottery.testDrawFixed(GAME_LOTTO, [31, 32, 33, 34, 35], [11, 12]);
+    await lottery.closeRegistration(GAME_LOTTO, 1);
+    await lottery.testStartNextRoundNow(GAME_LOTTO);
+
+    const nextRoundId = await lottery.currentRoundId(GAME_LOTTO);
+    const nextRound = await lottery.getRound(GAME_LOTTO, nextRoundId);
+    assert.equal(nextRoundId, 2n);
+    assert.equal(nextRound.status, 0n);
+    assert.equal(nextRound.closeTime, nextRound.openTime + DAY);
+
+    await lottery.connect(alice).buyTicket(GAME_LOTTO, [6, 7, 8, 9, 10], [3, 4], { value: ticketPrice });
+    assert.equal(await lottery.getRoundTicketCount(GAME_LOTTO, 2), 1n);
+  });
+
+  it("rejects immediate next round starts on production VRF contracts", async () => {
+    const { lottery } = await deployLotteryWithMockCoordinator();
+
+    await assert.rejects(
+      lottery.testStartNextRoundNow(GAME_LOTTO),
+      /LocalTestingDisabled/
+    );
+  });
+
   it("records drawTime when VRF fulfillment sets winning numbers", async () => {
     const { lottery, coordinator } = await deployLotteryWithMockCoordinator();
     const round = await lottery.getRound(GAME_KENO, 1);

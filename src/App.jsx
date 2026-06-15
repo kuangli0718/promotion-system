@@ -31,9 +31,31 @@ gsap.defaults({
 });
 
 const MAX_TICKETS_TO_LOAD = 50;
+const CASINO_ACTIVITY = [
+  { user: "玩家-9f31", action: "购买乐透型", amount: "+0.001 ETH" },
+  { user: "玩家-a62c", action: "登记中奖票", amount: "待结算" },
+  { user: "推广者-7b44", action: "获得推广奖励", amount: "+0.0005 ETH" },
+  { user: "玩家-d8c2", action: "购买复式票", amount: "+0.006 ETH" },
+  { user: "系统", action: "奖池滚存更新", amount: "实时" }
+];
+const ROUTES = [
+  { id: "lobby", hash: "", label: "购票大厅" },
+  { id: "draws", hash: "draws", label: "开奖票据" },
+  { id: "admin", hash: "admin", label: "管理后台" },
+  { id: "dev", hash: "dev", label: "开发调试" }
+];
+
+function getRouteFromHash() {
+  const hash = window.location.hash.replace(/^#\/?/, "");
+  return ROUTES.some((route) => route.id === hash) ? hash : "lobby";
+}
 
 function shortAddress(address) {
   return address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "";
+}
+
+function formatEth(value) {
+  return value ? `${ethers.formatEther(value)} ETH` : "-";
 }
 
 function normalizeNumbers(values = []) {
@@ -67,7 +89,7 @@ function explainRoundLoadError(error) {
     || message.includes("BAD_DATA")
     || message.includes("data out-of-bounds")
   ) {
-    return new Error("Contract ABI mismatch. Deploy the daily UTC SuperLottery contract and update VITE_SUPER_LOTTERY_ADDRESS.");
+    return new Error("合约 ABI 不匹配。请部署最新的推广版 SuperLottery 合约，并更新 VITE_SUPER_LOTTERY_ADDRESS。");
   }
   return error;
 }
@@ -100,15 +122,39 @@ function countAreaMatches(ticketNumbers, winningNumbers, ordered) {
 }
 
 function getTicketState(ticket, registered, roundStatus) {
-  if (ticket.claimed) return { tone: "success", label: "Claimed" };
-  if (registered) return { tone: "success", label: `Tier ${ticket.registeredTier}` };
-  if (roundStatus === 3) return { tone: "attention", label: "Review" };
-  if (roundStatus === 4) return { tone: "muted", label: "Unregistered" };
-  return { tone: "neutral", label: "Open" };
+  if (ticket.claimed) return { tone: "success", label: "已领取" };
+  if (registered) return { tone: "success", label: `${ticket.registeredTier} 等奖` };
+  if (roundStatus === 3) return { tone: "attention", label: "待核验" };
+  if (roundStatus === 4) return { tone: "muted", label: "未登记" };
+  return { tone: "neutral", label: "销售中" };
 }
 
 function getStepClass(state) {
   return `admin-step ${state}`;
+}
+
+function routeHref(routeId) {
+  return routeId === "lobby" ? "#/" : `#/${routeId}`;
+}
+
+function LiveTicker({ selectedGame, ticketCount, round }) {
+  return (
+    <section className="live-strip" aria-label="实时动态">
+      <span className="live-dot" />
+      {[...CASINO_ACTIVITY, ...CASINO_ACTIVITY].map((item, index) => (
+        <div className="live-item" key={`${item.user}-${index}`}>
+          <strong>{item.user}</strong>
+          <span>{item.action}</span>
+          <em>{index % 2 === 0 ? selectedGame.label : item.amount}</em>
+        </div>
+      ))}
+      <div className="live-item live-summary">
+        <strong>{STATUS_LABELS[round?.status] || "加载中"}</strong>
+        <span>{ticketCount.toString()} 张票</span>
+        <em>{selectedGame.label}</em>
+      </div>
+    </section>
+  );
 }
 
 function NumberGrid({ area, selected, onToggle, onPress }) {
@@ -155,8 +201,8 @@ function AreaPicker({ label, area, selected, onChange, onPressNumber }) {
           <p className="muted">{describeArea(label, area)}</p>
         </div>
         <div className="actions">
-          <button type="button" onClick={setRandom}>Random</button>
-          <button type="button" onClick={clear}>Clear</button>
+          <button type="button" onClick={setRandom}>随机</button>
+          <button type="button" onClick={clear}>清空</button>
         </div>
       </div>
 
@@ -168,7 +214,7 @@ function AreaPicker({ label, area, selected, onChange, onPressNumber }) {
       />
 
       <div className="selected-strip">
-        <span className="label">Selected</span>
+        <span className="label">已选号码</span>
         <div className="selected-picks">
           {selected.length === 0 ? (
             <strong>--</strong>
@@ -197,7 +243,7 @@ function TierTable({ tiers, tierStats }) {
           <div className="tier-row" key={tier.id}>
             <span>{tier.label}</span>
             <strong>{tier.pool}</strong>
-            <small>{tier.id > 0 ? `${stats.winners || 0} winners` : "reserve"}</small>
+            <small>{tier.id > 0 ? `${stats.winners || 0} 名中奖者` : "滚存"}</small>
             <small>{stats.prize ? `${ethers.formatEther(stats.prize)} ETH` : "-"}</small>
           </div>
         );
@@ -232,6 +278,8 @@ export default function App() {
   const [promotionBpsInput, setPromotionBpsInput] = useState("0");
   const [referralRewardBpsInput, setReferralRewardBpsInput] = useState("5000");
   const [maxPromotersInput, setMaxPromotersInput] = useState("200");
+  const [localTesting, setLocalTesting] = useState(false);
+  const [route, setRoute] = useState(getRouteFromHash);
   const refreshSeq = useRef(0);
   const { contextSafe } = useGSAP({ scope: appRef });
 
@@ -297,6 +345,10 @@ export default function App() {
       ))
   );
   const winningNumbersReady = round?.status >= 3;
+  const showLobby = route === "lobby";
+  const showDraws = route === "draws";
+  const showAdmin = route === "admin";
+  const showDev = route === "dev";
   const animateNumberPress = contextSafe((event) => {
     gsap.fromTo(event.currentTarget, { scale: 0.9 }, {
       scale: 1,
@@ -310,11 +362,21 @@ export default function App() {
     mm.add("(prefers-reduced-motion: no-preference)", () => {
       const tl = gsap.timeline({ defaults: { duration: 0.46, ease: "power3.out" } });
       tl.from(".topbar", { autoAlpha: 0, y: 18 })
-        .from(".game-tabs, .status-band, .rule-band, .time-band", {
+        .from(".casino-hero, .live-strip", {
+          autoAlpha: 0,
+          y: 18,
+          stagger: 0.06
+        }, "-=0.2")
+        .from(".app-nav, .game-tabs, .status-band, .rule-band, .time-band", {
           autoAlpha: 0,
           y: 14,
           stagger: 0.04
         }, "-=0.24")
+        .from(".status-band > div, .hero-metrics > div", {
+          autoAlpha: 0,
+          y: 10,
+          stagger: 0.025
+        }, "-=0.22")
         .from(".workspace, .tiers-section, .tickets-section, .history-section, .admin-panel", {
           autoAlpha: 0,
           y: 16,
@@ -325,6 +387,7 @@ export default function App() {
   }, { scope: appRef });
 
   useGSAP(() => {
+    if (!showLobby) return undefined;
     const mm = gsap.matchMedia();
     mm.add("(prefers-reduced-motion: no-preference)", () => {
       gsap.from(".game-tab.active", {
@@ -337,12 +400,18 @@ export default function App() {
         duration: 0.28,
         stagger: 0.035
       });
+      gsap.from(".activity-row", {
+        autoAlpha: 0,
+        x: 10,
+        duration: 0.24,
+        stagger: 0.03
+      });
     });
     return () => mm.revert();
-  }, { scope: appRef, dependencies: [selectedGameType], revertOnUpdate: true });
+  }, { scope: appRef, dependencies: [selectedGameType, showLobby], revertOnUpdate: true });
 
   useGSAP(() => {
-    if (!isLotto) return undefined;
+    if (!showLobby || !isLotto) return undefined;
     const mm = gsap.matchMedia();
     mm.add("(prefers-reduced-motion: no-preference)", () => {
       gsap.fromTo(".system-summary > div, .probability-grid > div", {
@@ -356,10 +425,10 @@ export default function App() {
       });
     });
     return () => mm.revert();
-  }, { scope: appRef, dependencies: [isLotto, betMode, systemEntryCount], revertOnUpdate: true });
+  }, { scope: appRef, dependencies: [showLobby, isLotto, betMode, systemEntryCount], revertOnUpdate: true });
 
   useGSAP(() => {
-    if (!tickets.length && !historyRounds.length) return undefined;
+    if (!showDraws || (!tickets.length && !historyRounds.length)) return undefined;
     const mm = gsap.matchMedia();
     mm.add("(prefers-reduced-motion: no-preference)", () => {
       gsap.from(".ticket-card, .history-card", {
@@ -372,12 +441,12 @@ export default function App() {
     return () => mm.revert();
   }, {
     scope: appRef,
-    dependencies: [tickets.length, historyRounds.length, selectedGameType, roundId],
+    dependencies: [showDraws, tickets.length, historyRounds.length, selectedGameType, roundId],
     revertOnUpdate: true
   });
 
   useGSAP(() => {
-    if (!isOwner) return undefined;
+    if (!showAdmin || !isOwner) return undefined;
     const mm = gsap.matchMedia();
     mm.add("(prefers-reduced-motion: no-preference)", () => {
       gsap.from(".admin-step", {
@@ -386,23 +455,26 @@ export default function App() {
         duration: 0.24,
         stagger: 0.03
       });
-      gsap.to(".admin-step.active .step-index", {
-        scale: 1.08,
-        duration: 0.9,
-        ease: "sine.inOut",
-        repeat: -1,
-        yoyo: true
-      });
+      const activeStep = appRef.current?.querySelector(".admin-step.active .step-index");
+      if (activeStep) {
+        gsap.to(activeStep, {
+          scale: 1.08,
+          duration: 0.9,
+          ease: "sine.inOut",
+          repeat: -1,
+          yoyo: true
+        });
+      }
     });
     return () => mm.revert();
   }, {
     scope: appRef,
-    dependencies: [isOwner, round?.status, selectedGameType],
+    dependencies: [showAdmin, isOwner, round?.status, selectedGameType],
     revertOnUpdate: true
   });
 
   useGSAP(() => {
-    if (!winningNumbersReady) return undefined;
+    if (!showLobby || !winningNumbersReady) return undefined;
     const mm = gsap.matchMedia();
     mm.add("(prefers-reduced-motion: no-preference)", () => {
       const tl = gsap.timeline({ defaults: { duration: 0.28, ease: "back.out(1.7)" } });
@@ -414,7 +486,7 @@ export default function App() {
       });
     });
     return () => mm.revert();
-  }, { scope: appRef, dependencies: [winningNumbersReady, roundId, selectedGameType], revertOnUpdate: true });
+  }, { scope: appRef, dependencies: [showLobby, winningNumbersReady, roundId, selectedGameType], revertOnUpdate: true });
 
   useGSAP(() => {
     if (!message) return undefined;
@@ -432,6 +504,13 @@ export default function App() {
   useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const handleHashChange = () => setRoute(getRouteFromHash());
+    window.addEventListener("hashchange", handleHashChange);
+    handleHashChange();
+    return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
   useEffect(() => {
@@ -463,7 +542,10 @@ export default function App() {
     const price = await contract.ticketPrice();
     const count = await contract.getRoundTicketCount(requestGameType, currentRoundId);
     const owner = await contract.owner();
-    const config = await contract.promotionConfigs(requestGameType);
+    const [config, contractLocalTesting] = await Promise.all([
+      contract.promotionConfigs(requestGameType),
+      contract.localTesting()
+    ]);
     const history = [];
     const currentRoundNumber = Number(currentRoundId);
     const firstRound = Math.max(1, currentRoundNumber - HISTORY_LIMIT + 1);
@@ -529,6 +611,7 @@ export default function App() {
     setRound(currentRound);
     setTicketPrice(price);
     setTicketCount(count);
+    setLocalTesting(Boolean(contractLocalTesting));
     setTickets(loadedTickets);
     setHistoryRounds(history);
     setTierStats(nextTierStats);
@@ -593,7 +676,7 @@ export default function App() {
   async function connectWallet() {
     try {
       if (!window.ethereum) {
-        setMessage("Install a browser wallet first.");
+        setMessage("请先安装浏览器钱包。");
         return;
       }
       await switchToSepolia();
@@ -608,9 +691,9 @@ export default function App() {
   async function transact(action, success) {
     try {
       setBusy(true);
-      setMessage("Waiting for wallet confirmation...");
+      setMessage("等待钱包确认...");
       const tx = await action(await getLotteryContract(true));
-      setMessage("Transaction submitted. Waiting for confirmation...");
+      setMessage("交易已提交，等待链上确认...");
       await tx.wait();
       setMessage(success);
       await refresh(account);
@@ -633,14 +716,42 @@ export default function App() {
           ? contract.buyLottoSystemTicket(mainNumbers, extraNumbers, { value: totalTicketPrice })
           : contract.buyTicket(selectedGameType, mainNumbers, extraNumbers, { value: ticketPrice });
       },
-      isSystemMode ? "System ticket bought." : "Ticket bought."
+      isSystemMode ? "复式票购买成功。" : "彩票购买成功。"
     );
   }
 
   async function claimPromotionReward() {
     await transact(
       (contract) => contract.claimPromotionReward(),
-      "Promotion reward claimed."
+      "推广奖励已领取。"
+    );
+  }
+
+  async function testCloseRound() {
+    await transact(
+      (contract) => contract.testCloseRound(selectedGameType),
+      "测试封盘已完成。"
+    );
+  }
+
+  async function testDrawRound() {
+    await transact(
+      (contract) => contract.testDraw(selectedGameType, BigInt(Date.now())),
+      "测试开奖已完成。"
+    );
+  }
+
+  async function testWithdrawBalance() {
+    await transact(
+      (contract) => contract.testWithdrawBalance(),
+      "测试合约余额已提取。"
+    );
+  }
+
+  async function testStartNextRoundNow() {
+    await transact(
+      (contract) => contract.testStartNextRoundNow(selectedGameType),
+      "测试下一轮已开启。"
     );
   }
 
@@ -651,27 +762,27 @@ export default function App() {
     const maxPromoters = Number(maxPromotersInput);
 
     if (!Number.isInteger(stimulus) || !Number.isInteger(promotion) || stimulus + promotion !== 10000) {
-      setMessage("Stimulus and promotion BPS must sum to 10000.");
+      setMessage("刺激系数和推广系数之和必须等于 10000。");
       return;
     }
     if (!Number.isInteger(referralReward) || referralReward < 0 || referralReward >= 10000) {
-      setMessage("Referral reward BPS must be from 0 to 9999.");
+      setMessage("推荐奖励系数必须在 0 到 9999 之间。");
       return;
     }
     if (!Number.isInteger(maxPromoters) || maxPromoters <= 0) {
-      setMessage("Max promoters must be greater than zero.");
+      setMessage("最大推广者数量必须大于 0。");
       return;
     }
 
     await transact(
       (contract) => contract.setPromotionConfig(selectedGameType, stimulus, promotion, referralReward, maxPromoters),
-      "Promotion config updated for future rounds."
+      "推广配置已更新，将从未来轮次生效。"
     );
   }
 
   const roundSummary = useMemo(() => {
-    if (!round) return "Connect or configure a contract to load the current round.";
-    return `Round #${roundId.toString()} · ${STATUS_LABELS[round.status]} · ${ticketCount.toString()} tickets`;
+    if (!round) return "请连接钱包或配置合约地址以加载当前轮次。";
+    return `第 ${roundId.toString()} 轮 · ${STATUS_LABELS[round.status]} · ${ticketCount.toString()} 张票`;
   }, [round, roundId, ticketCount]);
 
   const ruleSummary = useMemo(() => {
@@ -685,43 +796,43 @@ export default function App() {
   const adminSteps = useMemo(() => [
     {
       index: "01",
-      title: "Close Round",
-      detail: round?.status > 0 ? "Completed" : closeRoundReady ? "Ready" : "Waiting for UTC close",
+      title: "封盘",
+      detail: round?.status > 0 ? "已完成" : closeRoundReady ? "可操作" : "等待 UTC 截止",
       state: round?.status > 0 ? "done" : closeRoundReady ? "active" : "waiting",
       disabled: busy || !closeRoundReady,
-      actionLabel: "Close",
+      actionLabel: "封盘",
       action: (contract) => contract.closeRound(selectedGameType),
-      success: "Round closed."
+      success: "本轮已封盘。"
     },
     {
       index: "02",
-      title: "Request Draw",
-      detail: round?.status > 1 ? "Submitted" : round?.status === 1 ? "Ready" : "Waiting for close",
+      title: "请求开奖",
+      detail: round?.status > 1 ? "已提交" : round?.status === 1 ? "可操作" : "等待封盘",
       state: round?.status > 1 ? "done" : round?.status === 1 ? "active" : "waiting",
       disabled: busy || round?.status !== 1,
-      actionLabel: "Request",
+      actionLabel: "请求",
       action: (contract) => contract.requestDraw(selectedGameType),
-      success: "VRF draw requested."
+      success: "VRF 开奖请求已提交。"
     },
     {
       index: "03",
-      title: "Close Registration",
-      detail: round?.status > 3 ? "Completed" : round?.status === 3 ? "Ready" : "Waiting for draw",
+      title: "关闭登记",
+      detail: round?.status > 3 ? "已完成" : round?.status === 3 ? "可操作" : "等待开奖",
       state: round?.status > 3 ? "done" : round?.status === 3 ? "active" : "waiting",
       disabled: busy || round?.status !== 3,
-      actionLabel: "Close",
+      actionLabel: "关闭",
       action: (contract) => contract.closeRegistration(selectedGameType, roundId),
-      success: "Registration closed."
+      success: "中奖登记已关闭。"
     },
     {
       index: "04",
-      title: "Next Round",
-      detail: round?.status === 4 ? "Ready" : "Waiting for claimable",
+      title: "下一轮",
+      detail: round?.status === 4 ? "可操作" : "等待可领奖",
       state: round?.status === 4 ? "active" : "waiting",
       disabled: busy || round?.status !== 4,
-      actionLabel: "Start",
+      actionLabel: "开启",
       action: (contract) => contract.startNextRound(selectedGameType),
-      success: "Next round started."
+      success: "下一轮已开启。"
     }
   ], [busy, closeRoundReady, round?.status, roundId, selectedGameType]);
 
@@ -729,15 +840,57 @@ export default function App() {
     <main className="app-shell" ref={appRef}>
       <header className="topbar">
         <div className="brand-block">
-          <p className="eyebrow">Sepolia Demo</p>
-          <h1>Super Lottery</h1>
+          <p className="eyebrow">Sepolia 链上彩票</p>
+          <h1>超级彩票</h1>
+          <p className="brand-copy">暗色娱乐大厅 · 链上透明开奖 · 推广奖励实时结算</p>
+        </div>
+        <div className="topbar-status">
+          <span className="online-dot" />
+          <strong>{account ? "钱包已连接" : "等待连接"}</strong>
+          <small>{localTesting ? "测试模式" : "VRF 正式模式"}</small>
         </div>
         <button type="button" className="primary" onClick={connectWallet}>
-          {account ? shortAddress(account) : "Connect Wallet"}
+          {account ? shortAddress(account) : "连接钱包"}
         </button>
       </header>
 
-      <nav className="game-tabs" aria-label="Lottery games">
+      <section className="casino-hero">
+        <div className="hero-copy">
+          <span className="section-count">当前大厅 · {selectedGame.label}</span>
+          <h2>{round ? `${STATUS_LABELS[round.status]} · 第 ${roundId.toString()} 轮` : "连接钱包后加载轮次"}</h2>
+          <p>选择号码、绑定推荐人、登记中奖彩票和领取奖励都在同一个链上大厅完成。</p>
+        </div>
+        <div className="hero-metrics">
+          <div>
+            <span className="label">当前奖池</span>
+            <strong>{round ? formatEth(round.prizePool) : "-"}</strong>
+          </div>
+          <div>
+            <span className="label">销售倒计时</span>
+            <strong>{!round ? "--:--:--" : round.status === 0 && !salesClosedByTime ? countdownLabel : "已封盘"}</strong>
+          </div>
+          <div>
+            <span className="label">我的推广奖励</span>
+            <strong>{formatEth(promotionRewardBalance)}</strong>
+          </div>
+        </div>
+      </section>
+
+      <LiveTicker selectedGame={selectedGame} ticketCount={ticketCount} round={round} />
+
+      <nav className="app-nav" aria-label="页面导航">
+        {ROUTES.map((item) => (
+          <a
+            key={item.id}
+            href={routeHref(item.id)}
+            className={route === item.id ? "app-nav-link active" : "app-nav-link"}
+          >
+            {item.label}
+          </a>
+        ))}
+      </nav>
+
+      <nav className="game-tabs" aria-label="彩票玩法">
         {GAME_DEFINITIONS.map((game) => (
           <button
             key={game.gameType}
@@ -751,82 +904,90 @@ export default function App() {
       </nav>
 
       <section className="status-band">
+        {(showAdmin || showDev) && (
+          <div>
+            <span className="label">合约</span>
+            <strong>{LOTTERY_ADDRESS ? shortAddress(LOTTERY_ADDRESS) : "未配置"}</strong>
+          </div>
+        )}
         <div>
-          <span className="label">Contract</span>
-          <strong>{LOTTERY_ADDRESS ? shortAddress(LOTTERY_ADDRESS) : "Not configured"}</strong>
-        </div>
-        <div>
-          <span className="label">Game</span>
+          <span className="label">玩法</span>
           <strong>{selectedGame.label}</strong>
         </div>
         <div>
-          <span className="label">Round</span>
+          <span className="label">轮次</span>
           <strong>{roundSummary}</strong>
         </div>
         <div>
-          <span className="label">UTC Date</span>
+          <span className="label">UTC 日期</span>
           <strong>{round ? `${formatUtcDate(round.openTime)} · ${formatUtcWeekday(round.openTime)}` : "-"}</strong>
         </div>
         <div>
-          <span className="label">Sales Close</span>
+          <span className="label">销售截止</span>
           <strong>{round ? formatUtcDateTime(round.closeTime) : "-"}</strong>
         </div>
         <div>
-          <span className="label">Prize Pool</span>
+          <span className="label">奖池</span>
           <strong>{round ? `${ethers.formatEther(round.prizePool)} ETH` : "-"}</strong>
         </div>
         <div>
-          <span className="label">Ticket</span>
+          <span className="label">票价</span>
           <strong>{ticketPrice ? `${ethers.formatEther(ticketPrice)} ETH` : "-"}</strong>
         </div>
+        {(showAdmin || showDev) && (
+          <>
+            <div>
+              <span className="label">刺激 / 推广</span>
+              <strong>
+                {round ? `${Number(round.stimulusBps) / 100}% / ${Number(round.promotionBps) / 100}%` : "-"}
+              </strong>
+            </div>
+            <div>
+              <span className="label">推广池</span>
+              <strong>{round ? `${ethers.formatEther(round.promotionPool)} ETH` : "-"}</strong>
+            </div>
+            <div>
+              <span className="label">已发推广奖励</span>
+              <strong>{round ? `${ethers.formatEther(round.promotionPaid)} ETH` : "-"}</strong>
+            </div>
+          </>
+        )}
         <div>
-          <span className="label">Stimulus / Promotion</span>
-          <strong>
-            {round ? `${Number(round.stimulusBps) / 100}% / ${Number(round.promotionBps) / 100}%` : "-"}
-          </strong>
-        </div>
-        <div>
-          <span className="label">Promotion Pool</span>
-          <strong>{round ? `${ethers.formatEther(round.promotionPool)} ETH` : "-"}</strong>
-        </div>
-        <div>
-          <span className="label">Promotion Paid</span>
-          <strong>{round ? `${ethers.formatEther(round.promotionPaid)} ETH` : "-"}</strong>
-        </div>
-        <div>
-          <span className="label">Promotion</span>
+          <span className="label">我的推广奖励</span>
           <strong>{ethers.formatEther(promotionRewardBalance)} ETH</strong>
           <button
             type="button"
             onClick={claimPromotionReward}
             disabled={!account || promotionRewardBalance === 0n || busy}
           >
-            Claim promotion
+            领取推广奖励
           </button>
         </div>
       </section>
 
-      <section className="rule-band">
-        <span className="label">Rules</span>
-        <strong>{ruleSummary}</strong>
-      </section>
+      {showLobby && (
+        <>
+          <section className="rule-band">
+            <span className="label">规则</span>
+            <strong>{ruleSummary}</strong>
+          </section>
 
-      <section className="time-band">
-        <div>
-          <span className="label">Countdown</span>
-          <strong>
-            {!round ? "--:--:--" : round.status === 0 && !salesClosedByTime ? countdownLabel : "Sales closed"}
-          </strong>
-        </div>
-        <p className="muted">Draws are requested manually by the owner after the UTC close time.</p>
-      </section>
+          <section className="time-band">
+            <div>
+              <span className="label">倒计时</span>
+              <strong>
+                {!round ? "--:--:--" : round.status === 0 && !salesClosedByTime ? countdownLabel : "已封盘"}
+              </strong>
+            </div>
+            <p className="muted">销售截止后进入开奖流程，用户可在开奖票据页登记中奖票并领奖。</p>
+          </section>
 
-      <section className="workspace">
+          <section className="workspace">
         <div className="picker-panel">
           <div className="panel-head">
             <div>
-              <h2>Pick Numbers</h2>
-              <p>{selectedGame.label} · {STATUS_LABELS[round?.status] || "Loading"}</p>
+              <h2>选择号码</h2>
+              <p>{selectedGame.label} · {STATUS_LABELS[round?.status] || "加载中"}</p>
             </div>
             <div className="actions">
               <button
@@ -836,7 +997,7 @@ export default function App() {
                   setExtraNumbers(selectedGame.extra ? randomPickForArea(selectedGame.extra) : []);
                 }}
               >
-                Random All
+                全部随机
               </button>
               <button
                 type="button"
@@ -845,13 +1006,13 @@ export default function App() {
                   setExtraNumbers([]);
                 }}
               >
-                Clear All
+                全部清空
               </button>
             </div>
           </div>
 
           {isLotto && (
-            <div className="bet-mode" role="group" aria-label="Bet mode">
+            <div className="bet-mode" role="group" aria-label="投注模式">
               <button
                 type="button"
                 className={betMode === "single" ? "mode-button active" : "mode-button"}
@@ -890,7 +1051,7 @@ export default function App() {
           {isLotto && (
             <div className="system-summary">
               <div>
-                <span className="label">{isSystemMode ? "System Entries" : "Entry"}</span>
+                <span className="label">{isSystemMode ? "复式注数" : "注数"}</span>
                 <strong>
                   {isSystemMode
                     ? `${systemEntryCount} / ${selectedGame.system.maxEntries}`
@@ -898,15 +1059,15 @@ export default function App() {
                 </strong>
               </div>
               <div>
-                <span className="label">Total Price</span>
+                <span className="label">总价</span>
                 <strong>{ethers.formatEther(isSystemMode ? totalTicketPrice : ticketPrice)} ETH</strong>
               </div>
               <div>
-                <span className="label">First Prize</span>
+                <span className="label">一等奖概率</span>
                 <strong>{formatProbability(firstPrizeProbability)}</strong>
               </div>
               <div>
-                <span className="label">Any Listed Prize</span>
+                <span className="label">任一奖级概率</span>
                 <strong>{formatProbability(lottoTierProbabilities.listedPrizeProbability)}</strong>
               </div>
               {systemTooLarge && (
@@ -930,7 +1091,7 @@ export default function App() {
 
           <div className="selection-row">
             <div>
-              <span className="label">Ticket Numbers</span>
+              <span className="label">票面号码</span>
               <strong>
                 {formatNumbers(mainNumbers, selectedGame.main)}
                 {selectedGame.extra ? ` + ${formatNumbers(extraNumbers, selectedGame.extra)}` : ""}
@@ -940,42 +1101,42 @@ export default function App() {
 
           <div className="referral-panel">
             <div>
-              <span className="label">Referrer</span>
+              <span className="label">推荐人</span>
               {boundReferrer ? (
-                <strong>Bound to {shortAddress(boundReferrer)}</strong>
+                <strong>已绑定 {shortAddress(boundReferrer)}</strong>
               ) : (
                 <input
                   type="text"
                   value={referrerInput}
                   onChange={(event) => setReferrerInput(event.target.value)}
-                  placeholder="0x referrer address"
-                  aria-label="Referrer address"
+                  placeholder="0x 推荐人地址"
+                  aria-label="推荐人地址"
                   spellCheck="false"
                 />
               )}
             </div>
             <p className="muted">
               {boundReferrer
-                ? "Purchases use your bound referrer."
+                ? "本钱包购票会使用已绑定推荐人。"
                 : hasValidReferrerInput
-                  ? `Purchases will use ${shortAddress(normalizedReferrerInput)}.`
-                  : "Optional referral address for this wallet."}
+                  ? `本次购票将使用 ${shortAddress(normalizedReferrerInput)} 作为推荐人。`
+                  : "可选：为本钱包填写推荐人地址。"}
             </p>
           </div>
 
           <div className="selection-row">
             <div>
-              <span className="label">Purchase Price</span>
+              <span className="label">购买金额</span>
               <strong>{ethers.formatEther(isSystemMode ? totalTicketPrice : ticketPrice)} ETH</strong>
             </div>
             <button type="button" className="primary" disabled={!canBuy || busy} onClick={buyTicket}>
-              {isSystemMode ? "Buy System Ticket" : "Buy Ticket"}
+              {isSystemMode ? "购买复式票" : "购买彩票"}
             </button>
           </div>
         </div>
 
         <aside className="side-panel">
-          <h2>Draw</h2>
+          <h2>开奖状态</h2>
           {winningNumbersReady ? (
             <>
               <div className="draw-group">
@@ -1002,45 +1163,70 @@ export default function App() {
               )}
             </>
           ) : (
-            <p className="muted">Winning numbers are available after the VRF callback.</p>
+            <p className="muted">封盘并完成开奖后，这里会显示当前轮次的开奖号码。</p>
           )}
 
-          <div className="metrics">
-            <span>Request ID</span>
-            <strong>{round?.requestId ? round.requestId.toString() : "-"}</strong>
-            <span>Rollover</span>
-            <strong>{round ? `${ethers.formatEther(round.reserveRollover)} ETH` : "-"}</strong>
-            <span>Promotion Pool</span>
-            <strong>{round ? `${ethers.formatEther(round.promotionPool)} ETH` : "-"}</strong>
-            <span>Promotion Paid</span>
-            <strong>{round ? `${ethers.formatEther(round.promotionPaid)} ETH` : "-"}</strong>
+          <div className="user-guide">
+            <div>
+              <span className="label">当前状态</span>
+              <strong>{STATUS_LABELS[round?.status] || "加载中"}</strong>
+            </div>
+            <div>
+              <span className="label">已售彩票</span>
+              <strong>{ticketCount.toString()} 张</strong>
+            </div>
+            <div>
+              <span className="label">我的推广奖励</span>
+              <strong>{formatEth(promotionRewardBalance)}</strong>
+            </div>
+            <a href="#/draws">查看开奖票据</a>
+          </div>
+
+          <div className="activity-panel">
+            <div className="panel-head compact">
+              <h3>大厅动态</h3>
+              <span className="section-count">{ticketCount.toString()} 张票</span>
+            </div>
+            <div className="activity-list">
+              {CASINO_ACTIVITY.map((item) => (
+                <div className="activity-row" key={`${item.user}-${item.action}`}>
+                  <span>{item.user}</span>
+                  <strong>{item.action}</strong>
+                  <em>{item.amount}</em>
+                </div>
+              ))}
+            </div>
           </div>
         </aside>
-      </section>
+          </section>
+        </>
+      )}
 
-      <section className="tiers-section">
-        <div className="panel-head">
-          <h2>Prize Tiers</h2>
-          <span className="muted">{selectedGame.label}</span>
-        </div>
-        <TierTable tiers={selectedGame.tiers} tierStats={tierStats} />
-      </section>
+      {showDraws && (
+        <>
+          <section className="tiers-section">
+            <div className="panel-head">
+              <h2>奖级</h2>
+              <span className="muted">{selectedGame.label}</span>
+            </div>
+            <TierTable tiers={selectedGame.tiers} tierStats={tierStats} />
+          </section>
 
-      <section className="tickets-section">
-        <div className="panel-head">
-          <div>
-            <h2>{account ? "My Tickets" : "Current Round Tickets"}</h2>
-            <p>{selectedGame.label} · Round #{roundId.toString()}</p>
-          </div>
-          <div className="actions">
-            <span className="section-count">{tickets.length} loaded</span>
-            <button type="button" onClick={() => refresh(account)} disabled={busy}>Refresh</button>
-          </div>
-        </div>
-        <div className="ticket-list">
-          {tickets.length === 0 ? (
-            <p className="muted">No tickets loaded for this game and round.</p>
-          ) : tickets.map((ticket) => {
+          <section className="tickets-section">
+            <div className="panel-head">
+              <div>
+                <h2>{account ? "我的彩票" : "当前轮次彩票"}</h2>
+                <p>{selectedGame.label} · 第 {roundId.toString()} 轮</p>
+              </div>
+              <div className="actions">
+                <span className="section-count">已加载 {tickets.length} 张</span>
+                <button type="button" onClick={() => refresh(account)} disabled={busy}>刷新</button>
+              </div>
+            </div>
+            <div className="ticket-list">
+              {tickets.length === 0 ? (
+                <p className="muted">当前玩法和轮次暂无已加载彩票。</p>
+              ) : tickets.map((ticket) => {
             const mainMatches = round
               ? countAreaMatches(ticket.mainNumbers, round.winningMain, selectedGame.main.ordered)
               : 0;
@@ -1050,14 +1236,14 @@ export default function App() {
             const registered = ticket.registeredTier > 0;
             const ticketState = getTicketState(ticket, registered, round?.status);
             const matchLabel = winningNumbersReady
-              ? `${mainMatches}${selectedGame.extra ? ` + ${extraMatches}` : ""} matched`
-              : "Waiting for draw";
+              ? `命中 ${mainMatches}${selectedGame.extra ? ` + ${extraMatches}` : ""}`
+              : "等待开奖";
 
             return (
               <article className={`ticket-card ${ticketState.tone}`} key={ticket.id}>
                 <div className="ticket-main">
                   <div className="ticket-title-row">
-                    <strong>Ticket #{ticket.id}</strong>
+                    <strong>彩票 #{ticket.id}</strong>
                     <span className={`status-pill ${ticketState.tone}`}>{ticketState.label}</span>
                   </div>
                   <p className="ticket-numbers">
@@ -1067,7 +1253,7 @@ export default function App() {
                   <div className="ticket-meta">
                     <span>{shortAddress(ticket.buyer)}</span>
                     <span>{matchLabel}</span>
-                    <span>{ticket.claimed ? "Prize paid" : registered ? "Registered" : "Not registered"}</span>
+                    <span>{ticket.claimed ? "奖金已支付" : registered ? "已登记" : "未登记"}</span>
                   </div>
                 </div>
                 <div className="ticket-actions">
@@ -1077,10 +1263,10 @@ export default function App() {
                       disabled={busy || registered}
                       onClick={() => transact(
                         (contract) => contract.registerWinningTicket(selectedGameType, roundId, ticket.id),
-                        "Winning ticket registered."
+                        "中奖彩票已登记。"
                       )}
                     >
-                      {registered ? "Registered" : "Register"}
+                      {registered ? "已登记" : "登记"}
                     </button>
                   )}
                   {round?.status === 4 && (
@@ -1089,39 +1275,39 @@ export default function App() {
                       disabled={busy || ticket.claimed || !registered}
                       onClick={() => transact(
                         (contract) => contract.claimPrize(selectedGameType, roundId, ticket.id),
-                        "Prize claimed."
+                        "奖金已领取。"
                       )}
                     >
-                      {ticket.claimed ? "Claimed" : "Claim"}
+                      {ticket.claimed ? "已领取" : "领取"}
                     </button>
                   )}
                 </div>
               </article>
             );
           })}
-        </div>
-      </section>
+            </div>
+          </section>
 
-      <section className="history-section">
-        <div className="panel-head">
-          <div>
-            <h2>History</h2>
-            <p>{selectedGame.label} · recent drawn rounds</p>
-          </div>
-          <span className="section-count">{historyRounds.length} records</span>
-        </div>
-        <div className="history-list">
-          {historyRounds.length === 0 ? (
-            <p className="muted">No drawn history loaded for this game yet.</p>
-          ) : historyRounds.map((item) => (
-            <article className="history-card" key={item.id}>
+          <section className="history-section">
+            <div className="panel-head">
+              <div>
+                <h2>历史开奖</h2>
+                <p>{selectedGame.label} · 近期已开奖轮次</p>
+              </div>
+              <span className="section-count">{historyRounds.length} 条记录</span>
+            </div>
+            <div className="history-list">
+              {historyRounds.length === 0 ? (
+                <p className="muted">当前玩法暂无已开奖历史。</p>
+              ) : historyRounds.map((item) => (
+                <article className="history-card" key={item.id}>
               <div className="history-round">
                 <span className="status-pill success">{STATUS_LABELS[item.status]}</span>
-                <strong>Round #{item.id}</strong>
+                <strong>第 {item.id} 轮</strong>
                 <p>{formatUtcDate(item.openTime)} · {formatUtcWeekday(item.openTime)}</p>
               </div>
               <div className="history-numbers">
-                <span className="label">Winning Numbers</span>
+                <span className="label">开奖号码</span>
                 <div className="history-balls">
                   {item.winningMain.map((number, index) => (
                     <span className="mini-ball main" key={`hm-${item.id}-${number}-${index}`}>
@@ -1136,23 +1322,25 @@ export default function App() {
                 </div>
               </div>
               <div className="history-metrics">
-                <span className="label">Prize Pool</span>
+                <span className="label">奖池</span>
                 <strong>{ethers.formatEther(item.prizePool)} ETH</strong>
-                <small>Drawn {formatUtcDateTime(item.drawTime)}</small>
+                <small>开奖时间 {formatUtcDateTime(item.drawTime)}</small>
               </div>
-            </article>
-          ))}
-        </div>
-      </section>
+                </article>
+              ))}
+            </div>
+          </section>
+        </>
+      )}
 
-      {isOwner && (
+      {showAdmin && (isOwner ? (
         <section className="admin-panel">
           <div className="panel-head">
             <div>
-              <h2>Admin</h2>
-              <p>{selectedGame.label} · Round #{roundId.toString()} lifecycle</p>
+              <h2>管理后台</h2>
+              <p>{selectedGame.label} · 第 {roundId.toString()} 轮生命周期</p>
             </div>
-            <span className="status-pill neutral">{STATUS_LABELS[round?.status] || "Loading"}</span>
+            <span className="status-pill neutral">{STATUS_LABELS[round?.status] || "加载中"}</span>
           </div>
           <div className="admin-flow">
             {adminSteps.map((step) => (
@@ -1172,21 +1360,62 @@ export default function App() {
               </article>
             ))}
           </div>
+          {localTesting && (
+            <section className="admin-config">
+              <div className="admin-config-head">
+                <div>
+                  <h3>测试开奖</h3>
+                  <p className="muted">仅测试模式合约可用，用于跳过 UTC 截止和 VRF 回调验证完整流程。</p>
+                </div>
+                <span className="section-count">LOCAL_TESTING</span>
+              </div>
+              <div className="actions">
+                <button
+                  type="button"
+                  disabled={busy || round?.status !== 0}
+                  onClick={testCloseRound}
+                >
+                  立即测试封盘
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || round?.status !== 1}
+                  onClick={testDrawRound}
+                >
+                  立即测试开奖
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={testWithdrawBalance}
+                >
+                  提取测试余额
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || round?.status !== 4}
+                  onClick={testStartNextRoundNow}
+                >
+                  立即开启测试下一轮
+                </button>
+              </div>
+            </section>
+          )}
           <section className="admin-config">
             <div className="admin-config-head">
               <div>
-                <h3>Promotion config</h3>
-                <p className="muted">Applies to future rounds for the selected game.</p>
+                <h3>推广配置</h3>
+                <p className="muted">仅对当前玩法的未来轮次生效。</p>
               </div>
               {promotionConfig && (
                 <span className="section-count">
-                  Current {promotionConfig.stimulusBps / 100}% / {promotionConfig.promotionBps / 100}%
+                  当前 {promotionConfig.stimulusBps / 100}% / {promotionConfig.promotionBps / 100}%
                 </span>
               )}
             </div>
             <div className="config-grid">
               <label>
-                Stimulus BPS
+                刺激系数 BPS
                 <input
                   type="number"
                   min="0"
@@ -1196,7 +1425,7 @@ export default function App() {
                 />
               </label>
               <label>
-                Promotion BPS
+                推广系数 BPS
                 <input
                   type="number"
                   min="0"
@@ -1206,7 +1435,7 @@ export default function App() {
                 />
               </label>
               <label>
-                Referral Reward BPS
+                推荐奖励 BPS
                 <input
                   type="number"
                   min="0"
@@ -1216,7 +1445,7 @@ export default function App() {
                 />
               </label>
               <label>
-                Max Promoters
+                最大推广者数
                 <input
                   type="number"
                   min="1"
@@ -1226,9 +1455,81 @@ export default function App() {
               </label>
             </div>
             <button type="button" disabled={busy} onClick={savePromotionConfig}>
-              Save promotion config
+              保存推广配置
             </button>
           </section>
+        </section>
+      ) : (
+        <section className="admin-panel">
+          <div className="panel-head">
+            <div>
+              <h2>管理后台</h2>
+              <p>请连接合约 owner 钱包后管理轮次、推广配置和测试工具。</p>
+            </div>
+            <span className="status-pill attention">需要管理员钱包</span>
+          </div>
+        </section>
+      ))}
+
+      {showDev && (
+        <section className="admin-panel dev-panel">
+          <div className="panel-head">
+            <div>
+              <h2>开发调试</h2>
+              <p>链上状态、轮次原始字段和测试模式信息集中在这里。</p>
+            </div>
+            <button type="button" onClick={() => refresh(account)} disabled={busy}>刷新状态</button>
+          </div>
+          <div className="dev-grid">
+            <div>
+              <span className="label">合约地址</span>
+              <strong>{LOTTERY_ADDRESS || "未配置"}</strong>
+            </div>
+            <div>
+              <span className="label">连接账号</span>
+              <strong>{account || "未连接"}</strong>
+            </div>
+            <div>
+              <span className="label">测试模式</span>
+              <strong>{localTesting ? "已启用" : "未启用"}</strong>
+            </div>
+            <div>
+              <span className="label">玩法 / 轮次</span>
+              <strong>{selectedGame.label} / 第 {roundId.toString()} 轮</strong>
+            </div>
+            <div>
+              <span className="label">状态</span>
+              <strong>{STATUS_LABELS[round?.status] || "加载中"}</strong>
+            </div>
+            <div>
+              <span className="label">票数</span>
+              <strong>{ticketCount.toString()}</strong>
+            </div>
+            <div>
+              <span className="label">requestId</span>
+              <strong>{round?.requestId ? round.requestId.toString() : "-"}</strong>
+            </div>
+            <div>
+              <span className="label">reserveRollover</span>
+              <strong>{round ? formatEth(round.reserveRollover) : "-"}</strong>
+            </div>
+            <div>
+              <span className="label">promotionPool</span>
+              <strong>{round ? formatEth(round.promotionPool) : "-"}</strong>
+            </div>
+            <div>
+              <span className="label">promotionPaid</span>
+              <strong>{round ? formatEth(round.promotionPaid) : "-"}</strong>
+            </div>
+            <div>
+              <span className="label">openTime</span>
+              <strong>{round ? formatUtcDateTime(round.openTime) : "-"}</strong>
+            </div>
+            <div>
+              <span className="label">closeTime</span>
+              <strong>{round ? formatUtcDateTime(round.closeTime) : "-"}</strong>
+            </div>
+          </div>
         </section>
       )}
 

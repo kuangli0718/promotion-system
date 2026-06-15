@@ -32,6 +32,7 @@ VRF_SUBSCRIPTION_ID=
 VRF_KEY_HASH=
 VRF_CALLBACK_GAS_LIMIT=500000
 VRF_NATIVE_PAYMENT=true
+LOCAL_TESTING=false
 VITE_SUPER_LOTTERY_ADDRESS=
 ```
 
@@ -52,6 +53,16 @@ npm run dev -- --host 127.0.0.1
 ```
 
 Admin actions are game-scoped. Close rounds, request draws, close registration, and start next rounds independently for each game.
+
+### Owner Test Draws
+
+For end-to-end testing, deploy a separate test contract with:
+
+```bash
+LOCAL_TESTING=true
+```
+
+In local testing mode, the owner frontend shows a `测试开奖` action after a round is closed. This calls `testDraw(gameType, randomWord)` and moves the round to `Drawn` without waiting for Chainlink VRF. Use this only for testing, because the owner controls the test draw seed. Existing deployments cannot change `LOCAL_TESTING`; redeploy if you need this mode.
 
 ## Daily UTC Rounds
 
